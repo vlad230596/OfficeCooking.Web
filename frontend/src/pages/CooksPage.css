@@ -1,0 +1,70 @@
+.cooks-page { --cooks-soft: #f1ece2; }
+.cooks-filters { display: grid; grid-template-columns: repeat(2, minmax(135px, .7fr)) minmax(190px, 1.2fr) auto; align-items: end; gap: 9px; margin-bottom: 10px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.cooks-filters label, .cooks-list-heading label { display: grid; gap: 3px; color: var(--muted); font-size: 11px; font-weight: 720; }
+.cooks-filters input, .cooks-filters select, .cooks-list-heading select { width: 100%; min-height: 34px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: #faf8f2; }
+.cooks-filters__error { grid-column: 1 / -1; margin: 0; color: #9f351c; font-size: 12px; }
+.cooks-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 2px 6px; }
+.cooks-list-heading p { margin: 0; color: var(--muted); font-size: 12px; }
+.cooks-list-heading strong { color: var(--ink); }
+.cooks-list-heading label { grid-template-columns: auto 65px; align-items: center; }
+.cooks-table-wrap { max-width: 100%; max-height: calc(100vh - 245px); overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.cooks-table { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+.cooks-table th { position: sticky; z-index: 1; top: 0; padding: 7px 9px; color: var(--muted); background: var(--cooks-soft); font-size: 9px; letter-spacing: .03em; text-align: left; text-transform: uppercase; }
+.cooks-table td { padding: 7px 9px; border-top: 1px solid var(--line); }
+.cooks-table tbody tr.week-band--alternate { background: #f0f4ef; }
+.cooks-table tbody tr:hover, .cooks-table tbody tr.is-selected { background: #fff5ee; }
+.cooks-table__check { width: 34px; text-align: center !important; }
+.cooks-table input { width: 16px; height: 16px; accent-color: var(--accent); }
+.cooks-edit-link { color: var(--accent-dark); font-weight: 750; text-underline-offset: 3px; }
+.cooks-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 9px 0 76px; color: var(--muted); font-size: 12px; }
+.cooks-pagination button, .cooks-calculation-error button { padding: 6px 10px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: var(--surface); cursor: pointer; }
+.cooks-pagination button:disabled { cursor: not-allowed; opacity: .45; }
+.cooks-page.has-result .cooks-pagination { margin-bottom: 9px; }
+.cooks-selection { position: fixed; z-index: 12; right: max(20px, calc((100vw - 1320px) / 2)); bottom: 14px; left: max(20px, calc((100vw - 1320px) / 2)); display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 9px 8px 13px; border: 1px solid #cfc8ba; border-radius: 12px; background: rgba(255, 253, 248, .97); box-shadow: 0 12px 36px rgba(45, 43, 36, .18); backdrop-filter: blur(12px); }
+.cooks-selection div { display: flex; align-items: baseline; gap: 10px; }
+.cooks-selection span { color: var(--muted); font-size: 11px; }
+.cooks-selection--settled { position: static; margin-top: 10px; }
+.cooks-calculation-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; padding: 8px 10px; border: 1px solid #e5b2a1; border-radius: 9px; color: #8f2d16; background: #fff2ec; font-size: 12px; }
+.cooks-result { margin-top: 10px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.cooks-result__heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; color: white; background: var(--green); }
+.cooks-result__heading span { font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; opacity: .7; }
+.cooks-result__heading h2 { display: inline; margin: 0 0 0 8px; font-size: 16px; }
+.cooks-result__heading > div { display: flex; align-items: baseline; }
+.cooks-result__actions { display: flex; align-items: center; gap: 12px; }
+.cooks-result__actions > strong { font-size: 19px; }
+.cooks-result__actions button { min-height: 30px; padding: 5px 9px; border: 1px solid rgba(255, 255, 255, .45); border-radius: 7px; color: white; background: rgba(255, 255, 255, .12); font-size: 11px; font-weight: 750; cursor: pointer; }
+.cooks-result__copy { margin: 0; padding: 10px 12px; color: var(--ink); background: var(--surface); font: 13px/1.55 ui-monospace, "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; user-select: text; }
+.cooks-result__copy:focus { outline: 3px solid #edae92; outline-offset: -3px; }
+.cooks-result__empty { margin: 0; padding: 12px; color: var(--muted); }
+.sr-only { position: absolute; overflow: hidden; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; clip: rect(0 0 0 0); white-space: nowrap; }
+.table-label-short { display: none; }
+.table-date-short, .table-action-short { display: none; }
+@media (max-width: 767px) {
+  .cooks-filters { grid-template-columns: 1fr 1fr; }
+  .cooks-filters__template, .cooks-filters > .button, .cooks-filters__error { grid-column: 1 / -1; }
+  .cooks-list-heading label { display: flex; align-items: center; }
+  .cooks-list-heading select { width: 58px; }
+  .cooks-table-wrap { max-height: none; }
+  .cooks-table { table-layout: fixed; font-size: 10px; }
+  .cooks-table th, .cooks-table td { overflow: hidden; padding: 6px 4px; text-overflow: ellipsis; }
+  .cooks-table th:nth-child(1) { width: 30px; }
+  .cooks-table th:nth-child(2) { width: 40px; }
+  .cooks-table th:nth-child(3) { width: 34px; }
+  .cooks-table th:nth-child(4) { width: 31px; }
+  .cooks-table th:nth-child(5) { width: 69px; }
+  .cooks-table th:nth-child(6), .cooks-table th:nth-child(7) { width: 34px; }
+  .cooks-table th:nth-child(8) { width: 51px; }
+  .cooks-table th:nth-child(9) { width: 24px; }
+  .table-label-long { display: none; }
+  .table-label-short { display: inline; }
+  .table-date-long, .table-action-long { display: none; }
+  .table-date-short, .table-action-short { display: inline; }
+  .cooks-edit-link { display: block; font-size: 14px; text-align: center; text-decoration: none; }
+  .cooks-pagination { justify-content: space-between; margin-bottom: 8px; }
+  .cooks-selection { right: 10px; bottom: calc(78px + env(safe-area-inset-bottom)); left: 10px; gap: 8px; padding: 7px 7px 7px 10px; }
+  .cooks-selection--settled { margin-top: 8px; }
+  .cooks-selection .button { min-height: 34px; padding: 6px 10px; }
+  .cooks-selection span { display: none; }
+  .cooks-result__heading h2 { font-size: 14px; }
+  .cooks-result__actions { gap: 7px; }
+}

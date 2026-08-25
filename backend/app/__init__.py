@@ -1,0 +1,2 @@
+"""OfficeCookAssistant backend package."""
+

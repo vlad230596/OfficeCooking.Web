@@ -1,0 +1,112 @@
+"""Balance API routes."""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from typing import Annotated
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, Path, Query, Request, status
+from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.contracts import (
+    ApiError,
+    BalancesQuery,
+    BalancesResponse,
+    DateRangeQuery,
+    ErrorEnvelope,
+    UserBalanceDetailResponse,
+)
+from app.services.balances import BalanceDataError, BalanceService, UserNotFoundError
+
+router = APIRouter(prefix="/api/v1/balances", tags=["balances"])
+
+
+async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
+    async with request.app.state.session_factory() as session:
+        yield session
+
+
+def get_balance_service(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> BalanceService:
+    return BalanceService(session)
+
+
+def _error_response(
+    request: Request, status_code: int, code: str, message: str, **details: str
+) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", None) or request.headers.get(
+        "x-request-id", "unavailable"
+    )
+    envelope = ErrorEnvelope(
+        error=ApiError(
+            code=code,
+            message=message,
+            details=details,
+            request_id=request_id,
+        )
+    )
+    return JSONResponse(
+        status_code=status_code,
+        content=envelope.model_dump(mode="json", by_alias=True),
+    )
+
+
+@router.get(
+    "",
+    response_model=BalancesResponse,
+    responses={500: {"model": ErrorEnvelope}},
+)
+async def list_balances(
+    request: Request,
+    query: Annotated[BalancesQuery, Query()],
+    service: Annotated[BalanceService, Depends(get_balance_service)],
+) -> BalancesResponse | JSONResponse:
+    try:
+        return await service.list_balances(
+            query.date_from, query.date_to, non_zero_only=query.non_zero_only
+        )
+    except BalanceDataError as exc:
+        return _error_response(
+            request,
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "balance_calculation_failed",
+            "Stored data cannot produce balances.",
+            reason=str(exc),
+        )
+
+
+@router.get(
+    "/users/{userId}",
+    response_model=UserBalanceDetailResponse,
+    responses={404: {"model": ErrorEnvelope}, 500: {"model": ErrorEnvelope}},
+)
+async def get_user_balance(
+    request: Request,
+    user_id: Annotated[UUID, Path(alias="userId")],
+    query: Annotated[DateRangeQuery, Query()],
+    service: Annotated[BalanceService, Depends(get_balance_service)],
+) -> UserBalanceDetailResponse | JSONResponse:
+    try:
+        return await service.get_user_balance(user_id, query.date_from, query.date_to)
+    except UserNotFoundError:
+        return _error_response(
+            request,
+            status.HTTP_404_NOT_FOUND,
+            "user_not_found",
+            "User was not found.",
+            userId=str(user_id),
+        )
+    except BalanceDataError as exc:
+        return _error_response(
+            request,
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "balance_calculation_failed",
+            "Stored data cannot produce balances.",
+            reason=str(exc),
+        )
+
+
+__all__ = ["get_balance_service", "router"]

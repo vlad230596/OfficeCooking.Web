@@ -1,0 +1,46 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Private Legacy source and generated artifacts
+/data/
+/migration-report.json
+/migration-reports/
+
+# Python / backend
+/backend/.venv/
+/backend/.pytest_cache/
+/backend/.ruff_cache/
+/backend/.coverage
+/backend/htmlcov/
+/backend/dist/
+**/__pycache__/
+*.py[cod]
+
+# Node / frontend
+/frontend/node_modules/
+/frontend/dist/
+/frontend/coverage/
+/frontend/.vite/
+/frontend/playwright-report/
+/frontend/test-results/
+
+# IDE and operating system
+/.vs/
+/.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs, local databases, and backups
+*.log
+*.db
+*.sqlite
+*.sqlite3
+*.bak
+*.dump

@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to verify
+        required: false
+        type: string
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - name: Install uv
+        run: python -m pip install uv==0.12.3
+      - name: Verify backend
+        working-directory: backend
+        run: |
+          uv sync --frozen
+          uv run ruff check .
+          uv run pytest -q
+          uv lock --check
+          uv run alembic upgrade head --sql >/dev/null
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Build and test frontend
+        working-directory: frontend
+        run: |
+          npm run build
+          npm test
+      - name: Install Playwright Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Run responsive smoke tests
+        working-directory: frontend
+        run: npm run test:e2e

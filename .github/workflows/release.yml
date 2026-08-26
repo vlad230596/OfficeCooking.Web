@@ -1,0 +1,168 @@
+name: Release and deploy
+
+on:
+  push:
+    tags:
+      - '*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing SemVer tag to rebuild and deploy
+        required: true
+        type: string
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      ref: ${{ steps.release.outputs.ref }}
+      build_date: ${{ steps.release.outputs.build_date }}
+    steps:
+      - name: Validate release input
+        id: release
+        env:
+          PUSH_VERSION: ${{ github.ref_name }}
+          MANUAL_VERSION: ${{ inputs.version }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            version="$MANUAL_VERSION"
+          else
+            version="$PUSH_VERSION"
+          fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must be a SemVer core such as 1.0.0." >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "ref=refs/tags/$version" >> "$GITHUB_OUTPUT"
+          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+  quality:
+    needs: prepare
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.prepare.outputs.ref }}
+
+  publish:
+    needs: [prepare, quality]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    outputs:
+      backend_digest: ${{ steps.backend.outputs.digest }}
+      frontend_digest: ${{ steps.frontend.outputs.digest }}
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAMESPACE: ${{ github.repository_owner }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      BUILD_DATE: ${{ needs.prepare.outputs.build_date }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+      - name: Log in to GHCR
+        uses: docker/login-action@f4ef78c080cd8ba55a85445d5b36e214a81df20a
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish backend
+        id: backend
+        uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            APP_VERSION=${{ env.VERSION }}
+            BUILD_DATE=${{ env.BUILD_DATE }}
+          tags: |
+            ghcr.io/${{ env.IMAGE_NAMESPACE }}/officecooking-backend:${{ env.VERSION }}
+            ghcr.io/${{ env.IMAGE_NAMESPACE }}/officecooking-backend:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ env.VERSION }}
+            org.opencontainers.image.created=${{ env.BUILD_DATE }}
+      - name: Attest backend image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ghcr.io/${{ env.IMAGE_NAMESPACE }}/officecooking-backend
+          subject-digest: ${{ steps.backend.outputs.digest }}
+          push-to-registry: true
+      - name: Build and publish frontend
+        id: frontend
+        uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            APP_VERSION=${{ env.VERSION }}
+            BUILD_DATE=${{ env.BUILD_DATE }}
+          tags: |
+            ghcr.io/${{ env.IMAGE_NAMESPACE }}/officecooking-frontend:${{ env.VERSION }}
+            ghcr.io/${{ env.IMAGE_NAMESPACE }}/officecooking-frontend:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ env.VERSION }}
+            org.opencontainers.image.created=${{ env.BUILD_DATE }}
+      - name: Attest frontend image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ghcr.io/${{ env.IMAGE_NAMESPACE }}/officecooking-frontend
+          subject-digest: ${{ steps.frontend.outputs.digest }}
+          push-to-registry: true
+
+  deploy:
+    needs: [prepare, publish]
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://office-cooking.duckdns.org:8443
+    permissions:
+      contents: read
+      packages: read
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/officecooking-backend@${{ needs.publish.outputs.backend_digest }}
+      FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/officecooking-frontend@${{ needs.publish.outputs.frontend_digest }}
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PORT: ${{ vars.VPS_PORT || '22' }}
+    steps:
+      - name: Configure production SSH key
+        env:
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/officecooking-production
+          printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/officecooking-production ~/.ssh/known_hosts
+      - name: Deploy immutable image digests
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s\n' "$GHCR_TOKEN" | ssh \
+            -i ~/.ssh/officecooking-production \
+            -p "$VPS_PORT" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" \
+            "sudo /usr/local/sbin/officecooking-deploy '$VERSION' '$BACKEND_IMAGE' '$FRONTEND_IMAGE' '${{ github.actor }}'"

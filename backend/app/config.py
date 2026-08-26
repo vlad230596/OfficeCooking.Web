@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "OfficeCookAssistant API"
+    app_version: str = "dev"
+    build_date: str = "unknown"
     environment: str = "development"
     database_url: str | None = None
     database_host: str = "localhost"

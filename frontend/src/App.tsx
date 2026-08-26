@@ -7,9 +7,10 @@ import { NewCookPage } from './pages/NewCookPage'
 import { AccessPage } from './pages/AccessPage'
 import { LoginPage } from './pages/LoginPage'
 import { AuthProvider, useAuth } from './auth'
+import { BuildInfo } from './components/BuildInfo'
 
 export function App() {
-  return <AuthProvider><AuthenticatedRoutes /></AuthProvider>
+  return <AuthProvider><AuthenticatedRoutes /><BuildInfo /></AuthProvider>
 }
 
 function AuthenticatedRoutes() {
@@ -19,14 +20,14 @@ function AuthenticatedRoutes() {
   return (
     <Routes>
       <Route element={<AppShell />}>
-        <Route index element={<Navigate replace to="/balances" />} />
+        <Route index element={<Navigate replace to="/cooks" />} />
         <Route path="balances" element={<BalancesPage />} />
-        <Route path="cooks/new" element={hasRole('editor') ? <NewCookPage /> : <Navigate replace to="/balances" />} />
-        <Route path="cooks/:cookId" element={hasRole('editor') ? <NewCookPage /> : <Navigate replace to="/balances" />} />
+        <Route path="cooks/new" element={hasRole('editor') ? <NewCookPage /> : <Navigate replace to="/cooks" />} />
+        <Route path="cooks/:cookId" element={hasRole('editor') ? <NewCookPage /> : <Navigate replace to="/cooks" />} />
         <Route path="cooks" element={<CooksPage />} />
-        <Route path="catalog" element={hasRole('admin') ? <CatalogPage /> : <Navigate replace to="/balances" />} />
-        <Route path="access" element={hasRole('admin') ? <AccessPage /> : <Navigate replace to="/balances" />} />
-        <Route path="*" element={<Navigate replace to="/balances" />} />
+        <Route path="catalog" element={hasRole('admin') ? <CatalogPage /> : <Navigate replace to="/cooks" />} />
+        <Route path="access" element={hasRole('admin') ? <AccessPage /> : <Navigate replace to="/cooks" />} />
+        <Route path="*" element={<Navigate replace to="/cooks" />} />
       </Route>
     </Routes>
   )

@@ -13,6 +13,7 @@ from app.api.contracts import (
     CalculateSelectionResponse,
     CookDetailResponse,
     CooksPageResponse,
+    CreateCookRequest,
     DraftCookPreviewRequest,
     DraftCookPreviewResponse,
     DraftMemberChargeResponse,
@@ -30,7 +31,9 @@ from app.models import (
     CookMember,
     CookMemberVote,
     CookProductPrice,
+    CookTemplate,
     CookVoteVariant,
+    TemplateVoteVariant,
     User,
 )
 from app.services.cooks import (
@@ -378,6 +381,82 @@ def test_preview_is_pure_and_member_row_builder_omits_members_without_votes() ->
 
     assert members == []
     assert votes == []
+
+
+@pytest.mark.asyncio
+async def test_create_flushes_snapshot_parents_before_member_votes() -> None:
+    template = CookTemplate(
+        id=TEMPLATE_ID,
+        legacy_name="Шаурма",
+        source_key="templates:shawarma",
+        is_multivote=False,
+    )
+    variant = TemplateVoteVariant(
+        id=VARIANT_ID,
+        template_id=TEMPLATE_ID,
+        position=0,
+        name="1",
+        value=1.0,
+    )
+
+    class Scalars:
+        def all(self):
+            return [variant]
+
+    class Session:
+        def __init__(self):
+            self.events: list[object] = []
+
+        async def scalar(self, _statement):
+            return None
+
+        async def get(self, model, _identifier):
+            return template if model is CookTemplate else None
+
+        async def scalars(self, _statement):
+            return Scalars()
+
+        def add_all(self, rows):
+            self.events.append([type(row) for row in rows])
+
+        async def flush(self):
+            self.events.append("flush")
+
+        async def commit(self):
+            self.events.append("commit")
+
+        async def rollback(self):
+            self.events.append("rollback")
+
+    session = Session()
+    service = CooksService(session)  # type: ignore[arg-type]
+    service._users = AsyncMock(  # type: ignore[method-assign]
+        return_value={USER_ID: SimpleNamespace(permanent_sale=1.0)}
+    )
+    service.get_cook = AsyncMock(return_value=_detail())  # type: ignore[method-assign]
+    request = CreateCookRequest.model_validate(
+        {
+            "cookDate": "2026-08-10",
+            "templateId": TEMPLATE_ID,
+            "members": [
+                {
+                    "position": 0,
+                    "userId": USER_ID,
+                    "active": False,
+                    "voteVariantPositions": [0],
+                }
+            ],
+            "productPrices": [
+                {"position": 0, "productName": "Продукты", "expression": "100"}
+            ],
+        }
+    )
+
+    await service.create_cook(request)
+
+    assert session.events[1] == "flush"
+    assert session.events[2] == [CookMemberVote]
+    assert session.events[3] == "commit"
 
 
 @pytest.mark.asyncio

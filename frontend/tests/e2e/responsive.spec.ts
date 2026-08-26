@@ -9,7 +9,7 @@ test('navigation and four routes remain usable at the configured viewport', asyn
       : JSON.stringify({ code: 'e2e_offline', message: 'Backend is intentionally offline in this UI smoke test.' }),
   }))
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'Балансы' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Готовки' })).toBeVisible()
 
   const navigationName = test.info().project.name.startsWith('mobile')
     ? 'Мобильная навигация'

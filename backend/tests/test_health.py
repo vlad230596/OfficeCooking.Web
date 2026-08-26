@@ -23,6 +23,26 @@ async def test_health_is_available_without_database_connection() -> None:
 
 
 @pytest.mark.asyncio
+async def test_version_reports_backend_build_without_authentication() -> None:
+    settings = local_settings().model_copy(
+        update={"app_version": "1.0.0", "build_date": "2026-08-26T18:30:00Z"}
+    )
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            response = await client.get("/version")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "component": "backend",
+        "version": "1.0.0",
+        "buildDate": "2026-08-26T18:30:00Z",
+    }
+
+
+@pytest.mark.asyncio
 async def test_unknown_host_is_rejected() -> None:
     app = create_app(local_settings())
     async with app.router.lifespan_context(app):

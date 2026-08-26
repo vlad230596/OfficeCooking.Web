@@ -16,6 +16,7 @@ describe('development API proxy', () => {
   it('targets the local backend by default', () => {
     expect(createApiProxy()).toMatchObject({
       '/api': { target: defaultDevApiTarget, changeOrigin: false },
+      '/version': { target: defaultDevApiTarget, changeOrigin: false },
     })
   })
 

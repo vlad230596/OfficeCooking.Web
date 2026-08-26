@@ -249,11 +249,21 @@ class CooksService:
             {user_id: user.permanent_sale for user_id, user in users.items()},
         )
         try:
-            self.session.add_all([cook, *variants, *member_rows, *vote_rows, *products])
+            # The vote rows use composite foreign keys to both members and variants.
+            # There are intentionally no ORM relationships on these snapshot models, so
+            # SQLAlchemy cannot infer the required insert order from the object graph.
+            self.session.add_all([cook, *variants, *member_rows, *products])
+            await self.session.flush()
+            self.session.add_all(vote_rows)
             await self.session.commit()
         except IntegrityError as exc:
             await self.session.rollback()
-            raise DateConflictError("A cook already exists on this date.") from exc
+            if self._is_date_conflict(exc):
+                raise DateConflictError(
+                    "A cook already exists on this date.",
+                    details={"cookDate": request.cook_date.isoformat()},
+                ) from exc
+            raise InvalidSnapshotError("Cook snapshot violates database constraints.") from exc
         return await self.get_cook(cook_id)
 
     async def update_cook(self, cook_id: UUID, request: UpdateCookRequest) -> CookDetailResponse:
@@ -414,7 +424,12 @@ class CooksService:
             await self.session.commit()
         except IntegrityError as exc:
             await self.session.rollback()
-            raise DateConflictError("A cook already exists on this date.") from exc
+            if self._is_date_conflict(exc):
+                raise DateConflictError(
+                    "A cook already exists on this date.",
+                    details={"cookDate": request.cook_date.isoformat()},
+                ) from exc
+            raise InvalidSnapshotError("Cook snapshot violates database constraints.") from exc
         return await self.get_cook(cook_id)
 
     async def calculate_selection(
@@ -523,6 +538,14 @@ class CooksService:
         if exclude_id is not None:
             statement = statement.where(Cook.id != exclude_id)
         return await self.session.scalar(statement)
+
+    @staticmethod
+    def _is_date_conflict(error: IntegrityError) -> bool:
+        original = error.orig
+        constraint_name = getattr(original, "constraint_name", None)
+        if constraint_name is None:
+            constraint_name = getattr(getattr(original, "__cause__", None), "constraint_name", None)
+        return constraint_name == "uq_cooks_cook_date"
 
     async def _users(self, user_ids: set[UUID]) -> dict[UUID, User]:
         if not user_ids:

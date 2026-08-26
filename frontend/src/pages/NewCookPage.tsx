@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useMutation, useQueries, useQuery } from '@tanstack/react-query'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ApiError,
   createCook,
   getCook,
   getTemplate,
+  listCooks,
   listTemplates,
   listUsers,
   previewExpression,
   previewCook,
   updateCook,
+  updateTemplate,
 } from '../api'
 import type {
   CookDetail,
@@ -24,6 +26,7 @@ import type {
 import { ErrorState, LoadingState } from '../components/AsyncState'
 import { PageIntro } from '../components/PageIntro'
 import { formatQuantity, formatWholeAmount } from '../format'
+import { useAuth } from '../auth'
 import './NewCookPage.css'
 
 type MemberDraft = { id?: UUID; userId: UUID; active: boolean; selectedVotes: UUID[] }
@@ -53,14 +56,18 @@ export function NewCookPage() {
   const { cookId } = useParams<{ cookId?: UUID }>()
   const isEditing = Boolean(cookId)
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const { hasRole } = useAuth()
   const initializedCook = useRef<UUID | null>(null)
   const initializedTemplate = useRef<UUID | null>(null)
   const [cookDate, setCookDate] = useState<IsoDate>(today)
   const [templateId, setTemplateId] = useState<UUID>('')
   const [showDisabledUsers, setShowDisabledUsers] = useState(false)
+  const [showParticipantsOnly, setShowParticipantsOnly] = useState(true)
   const [members, setMembers] = useState<MemberDraft[]>([])
   const [expenses, setExpenses] = useState<ExpenseDraft[]>([])
   const [submitMessage, setSubmitMessage] = useState<string | null>(null)
+  const [templateMessage, setTemplateMessage] = useState<string | null>(null)
 
   const usersQuery = useQuery({
     queryKey: ['users', 'all'],
@@ -75,6 +82,18 @@ export function NewCookPage() {
     queryFn: ({ signal }) => getCook(cookId!, { signal }),
     enabled: isEditing,
   })
+  const dateAvailabilityQuery = useQuery({
+    queryKey: ['cook-date-availability', cookDate],
+    queryFn: ({ signal }) => listCooks({
+      dateFrom: cookDate,
+      dateTo: cookDate,
+      page: 1,
+      pageSize: 2,
+      signal,
+    }),
+    enabled: Boolean(cookDate) && (!isEditing || Boolean(cookQuery.data)),
+  })
+  const conflictingCook = dateAvailabilityQuery.data?.items.find((item) => item.id !== cookId)
 
   useEffect(() => {
     if (!isEditing && !templateId && templatesQuery.data?.[0]) setTemplateId(templatesQuery.data[0].id)
@@ -83,7 +102,7 @@ export function NewCookPage() {
   const templateQuery = useQuery({
     queryKey: ['template', templateId],
     queryFn: ({ signal }) => getTemplate(templateId, { signal }),
-    enabled: !isEditing && Boolean(templateId),
+    enabled: Boolean(templateId),
   })
 
   useEffect(() => {
@@ -97,11 +116,11 @@ export function NewCookPage() {
 
   useEffect(() => {
     const template = templateQuery.data
-    if (!template || initializedTemplate.current === template.id) return
+    if (isEditing || !template || initializedTemplate.current === template.id) return
     initializedTemplate.current = template.id
     setMembers((current) => current.map((member) => ({ ...member, selectedVotes: [] })))
     setExpenses(template.ingredients.map(toExpenseDraft))
-  }, [templateQuery.data])
+  }, [isEditing, templateQuery.data])
 
   useEffect(() => {
     const cook = cookQuery.data
@@ -121,7 +140,7 @@ export function NewCookPage() {
   const debouncedExpressions = useDebouncedExpressions(expenses)
   const previewQueries = useQueries({
     queries: debouncedExpressions.map((expression, index) => ({
-      queryKey: ['expression-preview', expression],
+      queryKey: ['expression-preview', index, expression],
       queryFn: ({ signal }: { signal: AbortSignal }) => previewExpression({ expression }, { signal }),
       enabled: expenses[index]?.expression === expression,
       staleTime: Number.POSITIVE_INFINITY,
@@ -166,10 +185,65 @@ export function NewCookPage() {
     () => new Map(cookQuery.data?.members.map((member) => [member.userId, member.charge]) ?? []),
     [cookQuery.data?.members],
   )
+  const displayedMembers = useMemo(
+    () => isEditing && showParticipantsOnly ? participatingMembers(members) : members,
+    [isEditing, members, showParticipantsOnly],
+  )
+  const currentUpdateRequest = useMemo(
+    () => cookQuery.data
+      ? makeUpdateRequest(cookQuery.data, cookDate, members, expenses)
+      : null,
+    [cookDate, cookQuery.data, expenses, members],
+  )
+  const initialUpdateRequest = useMemo(() => {
+    const cook = cookQuery.data
+    if (!cook) return null
+    return makeUpdateRequest(
+      cook,
+      cook.cookDate,
+      mergeCookMembers(cook, usersQuery.data ?? []),
+      cook.productPrices.map((item) => ({
+        id: item.id,
+        productName: item.productName,
+        expression: item.expression ?? '',
+      })),
+    )
+  }, [cookQuery.data, usersQuery.data])
+  const hasChanges = !isEditing || JSON.stringify(currentUpdateRequest) !== JSON.stringify(initialUpdateRequest)
+
+  const templateMutation = useMutation({
+    mutationFn: () => updateTemplate(templateId, {
+      name: templateQuery.data!.name,
+      isMultivote: templateQuery.data!.isMultivote,
+      voteVariants: templateQuery.data!.voteVariants.map((variant) => ({
+        name: variant.name,
+        value: variant.value,
+      })),
+      ingredients: expenses.map((expense) => ({
+        name: expense.productName!.trim(),
+        enabled: expense.enabled ?? true,
+      })),
+    }),
+    onMutate: () => setTemplateMessage(null),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['templates'] })
+      setTemplateMessage('Состав шаблона обновлён. Сохранённые готовки не изменились.')
+    },
+    onError: (error) => setTemplateMessage(errorMessage(error)),
+  })
+  const canUpdateTemplate = hasRole('admin')
+    && Boolean(templateId)
+    && Boolean(templateQuery.data)
+    && expenses.length <= 200
+    && expenses.every((expense) => {
+      const name = expense.productName?.trim() ?? ''
+      return name.length > 0 && name.length <= 200
+    })
+    && !templateMutation.isPending
 
   const mutation = useMutation({
     mutationFn: () => isEditing
-      ? updateCook(cookId!, makeUpdateRequest(cookQuery.data!, cookDate, members, expenses))
+      ? updateCook(cookId!, currentUpdateRequest!)
       : createCook(makeCreateRequest(cookDate, templateId, members, expenses, voteVariants)),
     onSuccess: () => navigate('/cooks'),
     onError: (error) => {
@@ -193,6 +267,9 @@ export function NewCookPage() {
     && members.some((member) => member.selectedVotes.length > 0)
     && previewsReady
     && draftPreviewQuery.isSuccess
+    && hasChanges
+    && !conflictingCook
+    && !dateAvailabilityQuery.isPending
     && !mutation.isPending
 
   if (loading || loadingError) return (
@@ -224,6 +301,7 @@ export function NewCookPage() {
           </div>
         )}
         {submitMessage && <div className="editor-alert" role="alert">{submitMessage}</div>}
+        {conflictingCook && <div className="editor-alert" role="alert">На {formatDisplayDate(cookDate)} уже есть готовка «{conflictingCook.typeSnapshot}». <Link to={`/cooks/${conflictingCook.id}`}>Открыть её для редактирования</Link>.</div>}
         <article className="editor-panel">
           <div className="editor-panel__heading"><span>01</span><h2>Параметры</h2></div>
           <div className="editor-fields">
@@ -235,6 +313,7 @@ export function NewCookPage() {
               </select>
             </label>
             {!isEditing && <label className="editor-fields__checkbox"><input type="checkbox" checked={showDisabledUsers} onChange={(event) => setShowDisabledUsers(event.target.checked)} />Показывать отключённых пользователей</label>}
+            {isEditing && <label className="editor-fields__checkbox"><input type="checkbox" checked={showParticipantsOnly} onChange={(event) => setShowParticipantsOnly(event.target.checked)} />Показывать только участников</label>}
           </div>
         </article>
 
@@ -243,7 +322,7 @@ export function NewCookPage() {
           <div className="editor-table-wrap">
             <table className="member-table" aria-label="Участники и варианты порций">
               <thead><tr><th>Участник</th><th>Активен</th>{voteVariants.map((vote) => <th key={vote.id}>{vote.name}</th>)}<th>К оплате</th></tr></thead>
-              <tbody>{members.map((member) => {
+              <tbody>{displayedMembers.map((member) => {
                 const userName = usersQuery.data?.find((item) => item.id === member.userId)?.name
                   ?? cookQuery.data?.members.find((item) => item.userId === member.userId)?.userName
                 const displayName = userName ?? member.userId
@@ -276,7 +355,8 @@ export function NewCookPage() {
         </article>
 
         <article className="editor-panel">
-          <div className="editor-panel__heading"><span>03</span><div><h2>Расходы</h2><p>Состав блюда — начальная заготовка; эта готовка сохранится отдельно.</p></div><button className="expense-add" type="button" onClick={() => setExpenses((current) => [...current, { productName: '', expression: '' }])}>+ Добавить строку</button></div>
+          <div className="editor-panel__heading"><span>03</span><div><h2>Расходы</h2><p>Состав блюда — начальная заготовка; эта готовка сохранится отдельно.</p></div><div className="expense-actions">{hasRole('admin') && <button className="expense-add" type="button" disabled={!canUpdateTemplate} title="Сохраняет в шаблон названия и порядок строк, но не выражения" onClick={() => templateMutation.mutate()}>{templateMutation.isPending ? 'Обновление…' : 'Обновить шаблон составом'}</button>}<button className="expense-add" type="button" onClick={() => setExpenses((current) => [...current, { productName: '', expression: '' }])}>+ Добавить строку</button></div></div>
+          {templateMessage && <div className={templateMutation.isError ? 'template-update-status template-update-status--error' : 'template-update-status'} role={templateMutation.isError ? 'alert' : 'status'}>{templateMessage}</div>}
           <div className="editor-table-wrap">
             <table className="expense-table">
               <thead><tr><th>Название расхода</th><th>Выражение</th><th>Результат</th><th><span className="sr-only">Действия</span></th></tr></thead>

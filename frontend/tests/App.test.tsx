@@ -35,6 +35,7 @@ function renderAt(path: string) {
 
 describe('application routes', () => {
   it.each([
+    ['/', 'Готовки'],
     ['/balances', 'Балансы'],
     ['/cooks/new', 'Новая готовка'],
     ['/cooks', 'Готовки'],

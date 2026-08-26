@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../src/api'
 import type { CookDetail, TemplateDetail, User } from '../src/api'
 import * as api from '../src/api/officeCookApi'
+import { AuthProvider } from '../src/auth'
 import { NewCookPage } from '../src/pages/NewCookPage'
 
 vi.mock('../src/api/officeCookApi')
@@ -48,22 +49,29 @@ function renderPage(path: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[path]}>
-        <Routes>
-          <Route path="/cooks/new" element={<NewCookPage />} />
-          <Route path="/cooks/:cookId" element={<NewCookPage />} />
-          <Route path="/cooks" element={<div>Список готовок</div>} />
-        </Routes>
-      </MemoryRouter>
+      <AuthProvider>
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route path="/cooks/new" element={<NewCookPage />} />
+            <Route path="/cooks/:cookId" element={<NewCookPage />} />
+            <Route path="/cooks" element={<div>Список готовок</div>} />
+          </Routes>
+        </MemoryRouter>
+      </AuthProvider>
     </QueryClientProvider>,
   )
 }
 
 beforeEach(() => {
+  vi.mocked(api.getCurrentUser).mockResolvedValue({ id: 'admin-1', name: 'Администратор', username: 'admin', role: 'admin' })
   vi.mocked(api.listUsers).mockResolvedValue(users)
   vi.mocked(api.listTemplates).mockResolvedValue([{ id: template.id, name: template.name, isMultivote: false }])
   vi.mocked(api.getTemplate).mockResolvedValue(template)
   vi.mocked(api.getCook).mockResolvedValue(cook)
+  vi.mocked(api.listCooks).mockResolvedValue({
+    items: [], page: 1, pageSize: 2, totalItems: 0, totalPages: 0,
+    ordering: { fields: [{ field: 'cookDate', direction: 'desc' }, { field: 'id', direction: 'asc' }] },
+  })
   vi.mocked(api.previewExpression).mockImplementation(async ({ expression }) => ({
     expression: expression ?? null,
     status: expression ? 'valid' : 'empty',
@@ -82,6 +90,7 @@ beforeEach(() => {
   }))
   vi.mocked(api.createCook).mockResolvedValue(cook)
   vi.mocked(api.updateCook).mockResolvedValue(cook)
+  vi.mocked(api.updateTemplate).mockResolvedValue(template)
 })
 
 describe('NewCookPage', () => {
@@ -125,7 +134,14 @@ describe('NewCookPage', () => {
     renderPage('/cooks/cook-1')
     expect(await screen.findByRole('heading', { name: 'Редактирование готовки' })).toBeInTheDocument()
     expect(await screen.findByText(/Сохранённая общая сумма: 200/)).toBeInTheDocument()
+    const participantsOnly = screen.getByRole('checkbox', { name: 'Показывать только участников' })
+    expect(participantsOnly).toBeChecked()
+    expect(screen.queryByRole('group', { name: 'Борис' })).not.toBeInTheDocument()
+    fireEvent.click(participantsOnly)
+    expect(screen.getByRole('group', { name: 'Борис' })).toBeInTheDocument()
     const submit = await screen.findByRole('button', { name: 'Сохранить готовку' })
+    await waitFor(() => expect(submit).toBeDisabled())
+    fireEvent.click(within(screen.getByRole('group', { name: 'Алиса' })).getByRole('checkbox', { name: /Активен/ }))
     await waitFor(() => expect(submit).toBeEnabled())
     fireEvent.click(submit)
     await waitFor(() => expect(api.updateCook).toHaveBeenCalledOnce())
@@ -136,7 +152,7 @@ describe('NewCookPage', () => {
         cookDate: '2026-08-18',
         voteVariants: cook.voteVariants,
         members: [{
-          id: 'member-1', position: 0, userId: 'user-1', active: true,
+          id: 'member-1', position: 0, userId: 'user-1', active: false,
           cookVoteVariantIds: ['snapshot-vote-1'],
         }],
         productPrices: [{
@@ -144,6 +160,7 @@ describe('NewCookPage', () => {
         }],
       },
     ])
+
   })
 
   it('shows a structured version-conflict message', async () => {
@@ -155,6 +172,7 @@ describe('NewCookPage', () => {
     }))
     renderPage('/cooks/cook-1')
     const submit = await screen.findByRole('button', { name: 'Сохранить готовку' })
+    fireEvent.change(screen.getByLabelText('Дата готовки'), { target: { value: '2026-08-19' } })
     await waitFor(() => expect(submit).toBeEnabled())
     fireEvent.click(submit)
     expect(await screen.findByRole('alert')).toHaveTextContent('Текущая версия: 8')
@@ -167,5 +185,44 @@ describe('NewCookPage', () => {
     const alice = await screen.findByRole('group', { name: 'Алиса' })
     expect(within(alice).getByText('200')).toBeInTheDocument()
     expect(await screen.findByRole('alert')).toHaveTextContent('Не удалось рассчитать стоимость участников')
+  })
+
+  it('warns about an occupied date before submit and disables saving', async () => {
+    vi.mocked(api.listCooks).mockResolvedValue({
+      items: [{
+        id: 'occupied-cook', cookDate: '2026-08-10', templateId: template.id,
+        typeSnapshot: 'Купаты', memberCount: 5, totalVoteWeight: 5, totalPrice: 500, rowVersion: 1,
+      }],
+      page: 1, pageSize: 2, totalItems: 1, totalPages: 1,
+      ordering: { fields: [{ field: 'cookDate', direction: 'desc' }, { field: 'id', direction: 'asc' }] },
+    })
+    renderPage('/cooks/new')
+
+    fireEvent.change(await screen.findByLabelText('Дата готовки'), { target: { value: '2026-08-10' } })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('уже есть готовка «Купаты»')
+    expect(screen.getByRole('link', { name: 'Открыть её для редактирования' })).toHaveAttribute('href', '/cooks/occupied-cook')
+    expect(screen.getByRole('button', { name: 'Сохранить готовку' })).toBeDisabled()
+  })
+
+  it('updates template ingredients from locally edited expense rows', async () => {
+    renderPage('/cooks/new')
+    const names = await screen.findAllByRole('textbox', { name: 'Название расхода' })
+    fireEvent.change(names[0], { target: { value: 'Новые купаты' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Обновить шаблон составом' }))
+
+    await waitFor(() => expect(api.updateTemplate).toHaveBeenCalledWith('template-1', {
+      name: 'Купаты',
+      isMultivote: false,
+      voteVariants: [
+        { name: 'Много', value: 1.5 },
+        { name: 'Немного', value: 1 },
+      ],
+      ingredients: [
+        { name: 'Новые купаты', enabled: true },
+        { name: 'Старый соус', enabled: false },
+      ],
+    }))
+    expect(await screen.findByText(/Состав шаблона обновлён/)).toBeInTheDocument()
   })
 })

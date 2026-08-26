@@ -13,5 +13,9 @@ export function createApiProxy(target = defaultDevApiTarget): Record<string, Pro
       target: url.origin,
       changeOrigin: false,
     },
+    '/version': {
+      target: url.origin,
+      changeOrigin: false,
+    },
   }
 }

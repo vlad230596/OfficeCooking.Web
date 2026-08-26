@@ -13,7 +13,12 @@ services:
       timeout: 3s
       retries: 10
   backend:
-    build: ./backend
+    image: ${BACKEND_IMAGE:-officecooking-backend:local}
+    build:
+      context: ./backend
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
     restart: unless-stopped
     environment:
       OFFICE_COOK_ENVIRONMENT: production
@@ -22,7 +27,7 @@ services:
       OFFICE_COOK_DATABASE_USER: ${POSTGRES_USER:-officecook}
       OFFICE_COOK_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       OFFICE_COOK_ALLOWED_HOSTS: "[\"${APP_DOMAIN}\",\"localhost\"]"
-      OFFICE_COOK_CORS_ORIGINS: "[\"https://${APP_DOMAIN}\"]"
+      OFFICE_COOK_CORS_ORIGINS: "[\"${APP_ORIGIN:?set APP_ORIGIN in .env}\"]"
       OFFICE_COOK_SESSION_COOKIE_SECURE: "true"
     depends_on:
       postgres: { condition: service_healthy }
@@ -32,7 +37,12 @@ services:
       timeout: 3s
       retries: 5
   frontend:
-    build: ./frontend
+    image: ${FRONTEND_IMAGE:-officecooking-frontend:local}
+    build:
+      context: ./frontend
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
     restart: unless-stopped
     depends_on:
       backend: { condition: service_healthy }
@@ -41,7 +51,11 @@ services:
     restart: unless-stopped
     environment:
       APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in .env}
-    ports: ["80:80", "443:443", "443:443/udp"]
+      APP_HTTPS_PORT: ${APP_HTTPS_PORT:-443}
+    ports:
+      - "80:80"
+      - "${APP_HTTPS_PORT:-443}:${APP_HTTPS_PORT:-443}"
+      - "${APP_HTTPS_PORT:-443}:${APP_HTTPS_PORT:-443}/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data

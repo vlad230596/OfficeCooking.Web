@@ -17,12 +17,13 @@
 | Каталог приложения | `/opt/officecooking` |
 | Production Compose | `/opt/officecooking/compose.prod.yaml` |
 | Production env | `/opt/officecooking/.env`, владелец `root:root`, режим `600` |
+| Active release | `1.0.0`, build date `2026-08-26T18:44:20Z` |
+| Release metadata | `/opt/officecooking/.release.env`, владелец `root:root`, режим `600` |
 | PostgreSQL | 17.6, только во внутренней Docker-сети |
 | Alembic | `0003_authentication (head)` |
 
-Приложение развёрнуто из commit `ec3b9f6d4fcafd85ea69831bf3c94d8f63816e06` с локальными
-production-изменениями, перечисленными ниже. Эти изменения ещё требуется добавить в Git перед
-первым автоматизированным обновлением.
+Production `1.0.0` развёрнут из commit `d6505ec89d8c673df68c94d56accde45bfdb7083` через GitHub Actions.
+Backend и frontend запущены из GHCR по зафиксированным SHA-256 digest, а не из изменяемого тега.
 
 ## DNS и TLS
 
@@ -365,7 +366,7 @@ curl --fail https://office-cooking.duckdns.org:8443/version
 - Пользователь `codex-setup` заблокирован, имеет shell `nologin`, не имеет ключа и sudo. Его запись
   можно окончательно удалить командой `sudo userdel -r codex-setup`.
 - Docker service включён в автозапуск; Compose services используют `restart: unless-stopped`.
-- На VDS 2 GiB RAM и нет swap; backend и frontend поэтому собирались последовательно.
+- На VDS 2 GiB RAM и нет swap; release images собираются на GitHub runners, а VDS только скачивает их.
 - На системном диске 20 GiB; после развёртывания было занято около 5.7 GiB.
 - Backup перед каждым deployment настроен; периодические backup, внешнее хранение, мониторинг, alerting и ротация
   deployment history пока не настроены.

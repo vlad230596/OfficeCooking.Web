@@ -1,5 +1,6 @@
 from .base import Base
 from .entities import (
+    AuthSession,
     Cook,
     CookMember,
     CookMemberVote,
@@ -17,6 +18,7 @@ from .entities import (
 
 __all__ = [
     "Base",
+    "AuthSession",
     "Cook",
     "CookMember",
     "CookMemberVote",

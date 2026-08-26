@@ -3,11 +3,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { App } from '../src/App'
+import { getCurrentUser } from '../src/api'
 
 vi.mock('../src/api', async (loadOriginal) => {
   const original = await loadOriginal<typeof import('../src/api')>()
   return {
     ...original,
+    getCurrentUser: vi.fn().mockResolvedValue({ id: '11111111-1111-4111-8111-111111111111', name: 'Admin', username: 'admin', role: 'admin' }),
     listUsers: vi.fn().mockResolvedValue([]),
     listTemplates: vi.fn().mockResolvedValue([]),
     getTemplate: vi.fn(),
@@ -42,10 +44,17 @@ describe('application routes', () => {
     expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeInTheDocument()
   })
 
-  it('exposes desktop and mobile navigation without a payments route', () => {
+  it('exposes desktop and mobile navigation without a payments route', async () => {
     renderAt('/balances')
-    expect(screen.getByRole('navigation', { name: 'Основная навигация' })).toBeInTheDocument()
+    expect(await screen.findByRole('navigation', { name: 'Основная навигация' })).toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: 'Мобильная навигация' })).toBeInTheDocument()
     expect(screen.queryByText('Платежи')).not.toBeInTheDocument()
+  })
+
+  it('shows the login form without a valid session', async () => {
+    vi.mocked(getCurrentUser).mockRejectedValueOnce(new Error('unauthorized'))
+    renderAt('/balances')
+    expect(await screen.findByRole('heading', { name: 'Офисная кухня' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Войти' })).toBeInTheDocument()
   })
 })

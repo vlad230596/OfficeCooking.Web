@@ -54,15 +54,24 @@ export async function apiRequest<TResponse>(
   if (body !== undefined && !requestHeaders.has('Content-Type')) {
     requestHeaders.set('Content-Type', 'application/json')
   }
+  const method = (requestInit.method ?? 'GET').toUpperCase()
+  if (['POST', 'PUT', 'PATCH'].includes(method) && !requestHeaders.has('X-CSRF-Token')) {
+    const csrfToken = readCookie('office_cook_csrf')
+    if (csrfToken) requestHeaders.set('X-CSRF-Token', csrfToken)
+  }
 
   const response = await fetch(`${apiConfig.baseUrl}/${path.replace(/^\//, '')}`, {
     ...requestInit,
+    credentials: 'include',
     headers: requestHeaders,
     body: body === undefined ? undefined : JSON.stringify(body),
   })
 
   const responseBody = await readResponseBody(response)
   if (!response.ok) {
+    if (response.status === 401 && typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('office-cook:unauthorized'))
+    }
     const payload = getErrorPayload(responseBody)
     throw new ApiError(
       payload?.message ?? `API request failed with status ${response.status}`,
@@ -72,6 +81,13 @@ export async function apiRequest<TResponse>(
   }
 
   return responseBody as TResponse
+}
+
+function readCookie(name: string): string | undefined {
+  if (typeof document === 'undefined') return undefined
+  const prefix = `${encodeURIComponent(name)}=`
+  const item = document.cookie.split('; ').find((value) => value.startsWith(prefix))
+  return item ? decodeURIComponent(item.slice(prefix.length)) : undefined
 }
 
 async function readResponseBody(response: Response): Promise<unknown> {

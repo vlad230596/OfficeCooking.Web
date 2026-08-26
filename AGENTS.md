@@ -11,7 +11,8 @@ OfficeCooking.Web — локальное клиент-серверное при�
 - `backend/` — Python 3.13, FastAPI, SQLAlchemy 2 async, asyncpg, Alembic и Pydantic;
 - `frontend/` — React 19, TypeScript, Vite, TanStack Query, Vitest и Playwright;
 - `compose.yaml` — локальные PostgreSQL и backend;
-- API без авторизации предназначен только для доверенного localhost.
+- API использует серверные сессии, CSRF-защиту и роли viewer/editor/admin; публичное
+  развёртывание выполняется только через HTTPS reverse proxy.
 
 ## Доменные инварианты
 

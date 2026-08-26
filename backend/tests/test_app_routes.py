@@ -19,6 +19,11 @@ def test_application_exposes_the_complete_v1_route_surface() -> None:
     assert {
         "/health",
         "/ready",
+        "/api/v1/auth/login",
+        "/api/v1/auth/logout",
+        "/api/v1/auth/me",
+        "/api/v1/auth/accounts",
+        "/api/v1/auth/accounts/{user_id}",
         "/api/v1/users",
         "/api/v1/templates",
         "/api/v1/templates/{template_id}",
@@ -41,3 +46,15 @@ def test_request_id_is_preserved_or_generated() -> None:
     assert supplied.headers["x-request-id"] == "route-test.1"
     assert generated.headers["x-request-id"]
     assert generated.headers["x-request-id"] != "invalid id"
+
+
+def test_v1_api_requires_authentication_but_health_remains_public() -> None:
+    app = create_app(_settings())
+    with TestClient(app) as client:
+        protected = client.get("/api/v1/users")
+        health = client.get("/health")
+
+    assert protected.status_code == 401
+    assert protected.json()["error"]["code"] == "authentication_required"
+    assert protected.headers["x-request-id"]
+    assert health.status_code == 200

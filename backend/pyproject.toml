@@ -15,6 +15,7 @@ dependencies = [
 
 [project.scripts]
 office-cook-migrate = "app.migration.cli:main"
+office-cook-auth = "app.auth_cli:main"
 
 [dependency-groups]
 dev = [

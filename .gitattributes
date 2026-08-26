@@ -1,0 +1,16 @@
+# Keep repository text deterministic across Windows, Linux, and containers.
+* text=auto eol=lf
+
+# Native Windows command files conventionally use CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Never attempt newline conversion for binary assets.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary

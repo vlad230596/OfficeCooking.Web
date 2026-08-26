@@ -1,6 +1,8 @@
 import { apiRequest } from './client'
 import type {
   BalancesResponse,
+  Account,
+  CurrentUser,
   CalculateSelectionRequest,
   CalculateSelectionResponse,
   CookDetail,
@@ -18,12 +20,33 @@ import type {
   TemplateDetail,
   TemplateSummary,
   UpdateCookRequest,
+  UpdateAccountRequest,
   User,
   UserBalanceDetail,
   UUID,
 } from './contracts'
 
 type WithSignal = { signal?: AbortSignal }
+
+export function login(username: string, password: string): Promise<CurrentUser> {
+  return apiRequest('auth/login', { method: 'POST', body: { username, password } })
+}
+
+export function getCurrentUser({ signal }: WithSignal = {}): Promise<CurrentUser> {
+  return apiRequest('auth/me', { signal })
+}
+
+export function logout(): Promise<void> {
+  return apiRequest('auth/logout', { method: 'POST', body: {} })
+}
+
+export function listAccounts({ signal }: WithSignal = {}): Promise<Account[]> {
+  return apiRequest('auth/accounts', { signal })
+}
+
+export function updateAccount(userId: UUID, request: UpdateAccountRequest): Promise<Account> {
+  return apiRequest(`auth/accounts/${encodeURIComponent(userId)}`, { method: 'PUT', body: request })
+}
 
 export type ListUsersOptions = WithSignal & { enabled?: EnabledFilter }
 export type ListCooksOptions = WithSignal & {

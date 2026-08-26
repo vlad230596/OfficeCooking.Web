@@ -3,6 +3,16 @@ export type UUID = string
 export type IsoDate = `${number}-${number}-${number}`
 export type EnabledFilter = 'true' | 'false' | 'all'
 export type CalculationStatus = 'valid' | 'empty' | 'error'
+export type Role = 'viewer' | 'editor' | 'admin'
+
+export type CurrentUser = { id: UUID; name: string; username: string; role: Role }
+export type Account = CurrentUser & { authEnabled: boolean }
+export type UpdateAccountRequest = {
+  username: string | null
+  password: string | null
+  role: Role
+  authEnabled: boolean
+}
 
 export type UserContact = {
   position: number

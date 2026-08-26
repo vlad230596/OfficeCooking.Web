@@ -5,6 +5,7 @@ from sqlalchemy.schema import CreateTable
 from app.models import Base
 
 EXPECTED_TABLES = {
+    "auth_sessions",
     "import_runs",
     "users",
     "user_contacts",

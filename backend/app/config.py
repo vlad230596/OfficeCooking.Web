@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL, make_url
 
@@ -31,6 +31,8 @@ class Settings(BaseSettings):
         ]
     )
     sql_echo: bool = False
+    session_cookie_secure: bool = False
+    session_ttl_hours: int = Field(default=12, ge=1, le=24)
 
     @field_validator("allowed_hosts", "cors_origins")
     @classmethod
@@ -61,6 +63,12 @@ class Settings(BaseSettings):
             port=self.database_port,
             database=self.database_name,
         )
+
+    @model_validator(mode="after")
+    def require_secure_production_cookies(self) -> "Settings":
+        if self.environment.lower() == "production" and not self.session_cookie_secure:
+            raise ValueError("production requires secure session cookies")
+        return self
 
 
 @lru_cache

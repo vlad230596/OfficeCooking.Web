@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+import { useAuth } from '../auth'
 
 type NavigationItem = {
   to: string
@@ -15,10 +16,10 @@ const navigation: NavigationItem[] = [
   { to: '/catalog', label: 'Справочники', shortLabel: 'Данные', icon: <CatalogIcon /> },
 ]
 
-function Navigation({ mobile = false }: { mobile?: boolean }) {
+function Navigation({ mobile = false, items = navigation }: { mobile?: boolean; items?: NavigationItem[] }) {
   return (
     <nav aria-label={mobile ? 'Мобильная навигация' : 'Основная навигация'} className={mobile ? 'mobile-nav' : 'desktop-nav'}>
-      {navigation.map((item) => (
+      {items.map((item) => (
         <NavLink key={item.to} className={({ isActive }) => `nav-link${isActive ? ' nav-link--active' : ''}`} to={item.to}>
           <span aria-hidden="true" className="nav-link__icon">{item.icon}</span>
           <span className={mobile ? 'nav-link__mobile-label' : undefined}>{mobile ? item.shortLabel : item.label}</span>
@@ -29,6 +30,12 @@ function Navigation({ mobile = false }: { mobile?: boolean }) {
 }
 
 export function AppShell() {
+  const { user, hasRole, logout } = useAuth()
+  const visibleNavigation = navigation.filter(item => {
+    if (item.to === '/catalog') return hasRole('admin')
+    if (item.to === '/cooks/new') return hasRole('editor')
+    return true
+  })
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -39,12 +46,14 @@ export function AppShell() {
             <span className="brand__subtitle">учёт готовок</span>
           </div>
         </div>
-        <Navigation />
+        <Navigation items={visibleNavigation} />
+        {hasRole('admin') && <NavLink className="user-menu" to="/access">Доступы</NavLink>}
+        <button className="logout-button" onClick={() => void logout()} title={`Выйти: ${user?.name}`}>Выйти</button>
       </header>
       <main className="app-content" id="main-content">
         <Outlet />
       </main>
-      <Navigation mobile />
+      <Navigation items={visibleNavigation} mobile />
     </div>
   )
 }

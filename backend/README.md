@@ -56,11 +56,29 @@ docker compose up --build
 docker compose exec backend uv run alembic upgrade head
 ```
 
-Replace the example password before startup. The API and PostgreSQL ports are bound to `127.0.0.1`
-because v1 has no authentication. `GET http://127.0.0.1:8000/health` is a process-liveness probe and
+Replace the example password before startup. Development API and PostgreSQL ports are bound to
+`127.0.0.1`; use `compose.prod.yaml` for an authenticated public deployment.
+`GET http://127.0.0.1:8000/health` is a process-liveness probe and
 does not access PostgreSQL. `GET http://127.0.0.1:8000/ready` is the readiness probe and returns
 success only when PostgreSQL accepts a query.
 
 Host and CORS settings use explicit localhost allowlists. Override them only with JSON arrays, for
 example `OFFICE_COOK_CORS_ORIGINS=["http://localhost:5173"]`; wildcard values are rejected. The
 current API deliberately rejects all `DELETE` requests until deletion semantics are approved.
+
+## Authentication and roles
+
+All `/api/v1` routes except login require a revocable server-side session. The browser receives an
+HttpOnly session cookie and a separate CSRF token. Roles are hierarchical: `viewer` can read,
+`editor` can also manage cooks and run calculations, and `admin` can additionally manage catalogs
+and login access. Passwords are stored as salted scrypt hashes.
+
+After applying migrations, enable the first administrator on an existing imported user:
+
+```powershell
+uv run office-cook-auth list-users
+uv run office-cook-auth set-user --legacy-id 1 --username admin --role admin
+```
+
+The command prompts for the password without putting it in shell history. Further accounts are
+managed on the **Доступы** page. Changing an account revokes all of that user's sessions.

@@ -8,6 +8,7 @@ import {
   getCook,
   getTemplate,
   getUserBalance,
+  login,
   listBalances,
   listCooks,
   listTemplates,
@@ -27,6 +28,18 @@ const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringif
 
 describe('OfficeCook API', () => {
   afterEach(() => vi.unstubAllGlobals())
+
+  it('sends credentials when logging in', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ role: 'admin' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await login('TestAdmin', 'password')
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/auth/login')
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      username: 'TestAdmin', password: 'password',
+    })
+  })
 
   it('builds catalog paths and forwards AbortSignal', async () => {
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse([])))

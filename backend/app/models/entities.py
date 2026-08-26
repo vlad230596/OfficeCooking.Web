@@ -45,6 +45,10 @@ class ImportRun(Base):
 
 class User(TimestampMixin, Base):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint("role IN ('viewer', 'editor', 'admin')", name="users_role_allowed"),
+        Index("uq_users_username_lower", text("lower(username)"), unique=True),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     legacy_id: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)
@@ -52,6 +56,25 @@ class User(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(Text, nullable=False)
     permanent_sale: Mapped[float] = mapped_column(REAL, nullable=False, server_default=text("1.0"))
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    username: Mapped[str | None] = mapped_column(Text)
+    password_hash: Mapped[str | None] = mapped_column(Text)
+    role: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'viewer'"))
+    auth_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+    __table_args__ = (Index("ix_auth_sessions_user_id", "user_id"),)
+
+    token_hash: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    csrf_token_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class UserContact(Base):

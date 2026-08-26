@@ -2,9 +2,11 @@ import { expect, test } from '@playwright/test'
 
 test('navigation and four routes remain usable at the configured viewport', async ({ page }) => {
   await page.route('**/api/v1/**', route => route.fulfill({
-    status: 503,
+    status: route.request().url().endsWith('/auth/me') ? 200 : 503,
     contentType: 'application/json',
-    body: JSON.stringify({ code: 'e2e_offline', message: 'Backend is intentionally offline in this UI smoke test.' }),
+    body: route.request().url().endsWith('/auth/me')
+      ? JSON.stringify({ id: '11111111-1111-4111-8111-111111111111', name: 'Admin', username: 'admin', role: 'admin' })
+      : JSON.stringify({ code: 'e2e_offline', message: 'Backend is intentionally offline in this UI smoke test.' }),
   }))
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Балансы' })).toBeVisible()

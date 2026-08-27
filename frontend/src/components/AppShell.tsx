@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../auth'
+import { BuildInfo } from './BuildInfo'
 
 type NavigationItem = {
   to: string
@@ -53,6 +54,9 @@ export function AppShell() {
       <main className="app-content" id="main-content">
         <Outlet />
       </main>
+      <footer className="app-footer">
+        <BuildInfo />
+      </footer>
       <Navigation items={visibleNavigation} mobile />
     </div>
   )

@@ -7,10 +7,9 @@ import { NewCookPage } from './pages/NewCookPage'
 import { AccessPage } from './pages/AccessPage'
 import { LoginPage } from './pages/LoginPage'
 import { AuthProvider, useAuth } from './auth'
-import { BuildInfo } from './components/BuildInfo'
 
 export function App() {
-  return <AuthProvider><AuthenticatedRoutes /><BuildInfo /></AuthProvider>
+  return <AuthProvider><AuthenticatedRoutes /></AuthProvider>
 }
 
 function AuthenticatedRoutes() {

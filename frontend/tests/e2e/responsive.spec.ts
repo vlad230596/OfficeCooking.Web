@@ -8,6 +8,11 @@ test('navigation and four routes remain usable at the configured viewport', asyn
       ? JSON.stringify({ id: '11111111-1111-4111-8111-111111111111', name: 'Admin', username: 'admin', role: 'admin' })
       : JSON.stringify({ code: 'e2e_offline', message: 'Backend is intentionally offline in this UI smoke test.' }),
   }))
+  await page.route('**/version', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ component: 'backend', version: 'e2e', buildDate: '2026-08-27T06:00:00Z' }),
+  }))
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Готовки' })).toBeVisible()
 
@@ -28,4 +33,19 @@ test('navigation and four routes remain usable at the configured viewport', asyn
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
   )
   expect(hasHorizontalOverflow).toBe(false)
+
+  const buildInfo = page.getByRole('complementary', { name: 'Версии сборки' })
+  await buildInfo.scrollIntoViewIfNeeded()
+  await expect(buildInfo).toBeVisible()
+  expect(await buildInfo.evaluate(element => getComputedStyle(element).position)).toBe('static')
+
+  const buildInfoBox = await buildInfo.boundingBox()
+  const navigationBox = await navigation.boundingBox()
+  expect(buildInfoBox).not.toBeNull()
+  expect(navigationBox).not.toBeNull()
+  const overlapsNavigation = buildInfoBox!.x < navigationBox!.x + navigationBox!.width
+    && buildInfoBox!.x + buildInfoBox!.width > navigationBox!.x
+    && buildInfoBox!.y < navigationBox!.y + navigationBox!.height
+    && buildInfoBox!.y + buildInfoBox!.height > navigationBox!.y
+  expect(overlapsNavigation).toBe(false)
 })

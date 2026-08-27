@@ -275,6 +275,9 @@ curl --fail https://office-cooking.duckdns.org:8443/ready
 
 ## Deployment по тегам через GitHub Actions
 
+Пошаговый путь от локального commit до ручной проверки сайта вынесен в
+[GITHUB_DEPLOYMENT.md](GITHUB_DEPLOYMENT.md).
+
 Реализованный процесс:
 
 ```text

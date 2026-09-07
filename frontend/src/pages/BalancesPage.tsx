@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
-import { createUserPayment, deleteUserPayment, getUserBalance, listBalances } from '../api'
+import { closeUserBalance, createUserPayment, deleteUserPayment, getCloseBalancePreview, getUserBalance, listBalances } from '../api'
 import type { BalancePayment, IsoDate, UserBalance } from '../api'
 import { useAuth } from '../auth'
 import { EmptyState, ErrorState, LoadingState } from '../components/AsyncState'
@@ -34,6 +34,8 @@ export function BalancesPage() {
   const [paymentAmount, setPaymentAmount] = useState('')
   const [paymentTypeId, setPaymentTypeId] = useState('')
   const [paymentComment, setPaymentComment] = useState('')
+  const [adjustmentOpen, setAdjustmentOpen] = useState(false)
+  const [adjustmentReason, setAdjustmentReason] = useState('')
   const rangeIsValid = /^\d{4}-\d{2}-\d{2}$/.test(dateFrom)
     && /^\d{4}-\d{2}-\d{2}$/.test(dateTo)
     && dateFrom <= dateTo
@@ -70,6 +72,21 @@ export function BalancesPage() {
       ])
     },
   })
+  const adjustmentPreview = useMutation({
+    mutationFn: ({ userId, adjustmentDate }: { userId: string; adjustmentDate: IsoDate }) => getCloseBalancePreview(userId, adjustmentDate),
+  })
+  const closeBalance = useMutation({
+    mutationFn: ({ userId, expectedBalance, reason }: { userId: string; expectedBalance: number; reason: string }) => closeUserBalance(userId, { adjustmentDate: dateTo, expectedBalance, reason }),
+    onSuccess: async () => {
+      setAdjustmentOpen(false)
+      setAdjustmentReason('')
+      adjustmentPreview.reset()
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['balances'] }),
+        queryClient.invalidateQueries({ queryKey: ['balance-detail'] }),
+      ])
+    },
+  })
 
   function requestPaymentDeletion(payment: BalancePayment) {
     if (!selectedUser || !window.confirm(`Удалить платёж ${amount(payment.amount)} от ${displayDate(payment.paymentDate)}? Он перестанет учитываться в балансе.`)) return
@@ -88,6 +105,20 @@ export function BalancesPage() {
     const value = Number(paymentAmount)
     if (!selectedUser || !paymentTypeId || !Number.isInteger(value) || value <= 0) return
     createPayment.mutate({ userId: selectedUser.userId, paymentDate, amount: value, paymentTypeId, comment: paymentComment.trim() })
+  }
+
+  function openAdjustmentForm() {
+    if (!selectedUser) return
+    setPaymentFormOpen(false)
+    setAdjustmentOpen(true)
+    setAdjustmentReason('')
+    adjustmentPreview.mutate({ userId: selectedUser.userId, adjustmentDate: dateTo })
+  }
+
+  function submitAdjustment(event: FormEvent) {
+    event.preventDefault()
+    if (!selectedUser || !adjustmentPreview.data || !adjustmentReason.trim()) return
+    closeBalance.mutate({ userId: selectedUser.userId, expectedBalance: adjustmentPreview.data.balanceBefore, reason: adjustmentReason.trim() })
   }
 
   return (
@@ -139,7 +170,7 @@ export function BalancesPage() {
           </section>
 
           <section className="balances-panel balances-detail" aria-labelledby="balance-detail-title">
-            <div className="balances-panel__heading"><div><span className="eyebrow">Расчётные недели</span><h2 id="balance-detail-title">{selectedUser?.userName ?? 'Выберите участника'}</h2></div>{selectedUser && hasRole('editor') && <button className="button button--secondary add-payment-button" type="button" onClick={() => paymentFormOpen ? setPaymentFormOpen(false) : openPaymentForm()}>{paymentFormOpen ? 'Отмена' : 'Добавить платёж'}</button>}</div>
+            <div className="balances-panel__heading"><div><span className="eyebrow">Расчётные недели</span><h2 id="balance-detail-title">{selectedUser?.userName ?? 'Выберите участника'}</h2></div>{selectedUser && hasRole('editor') && <div className="balance-actions"><button className="button button--secondary add-payment-button" type="button" onClick={() => paymentFormOpen ? setPaymentFormOpen(false) : openPaymentForm()}>{paymentFormOpen ? 'Отмена' : 'Добавить платёж'}</button><button className="button button--secondary" type="button" onClick={() => adjustmentOpen ? setAdjustmentOpen(false) : openAdjustmentForm()}>{adjustmentOpen ? 'Отмена' : 'Скорректировать до нуля'}</button></div>}</div>
             {paymentFormOpen && selectedUser && detailQuery.data && <form className="manual-payment" onSubmit={submitPayment}>
               <strong>Полученный платёж · {selectedUser.userName}</strong>
               <label>Дата получения<input required type="date" value={paymentDate} onChange={event => setPaymentDate(event.target.value as IsoDate)} /></label>
@@ -148,6 +179,13 @@ export function BalancesPage() {
               <label className="manual-payment__comment">Комментарий<input maxLength={1000} value={paymentComment} onChange={event => setPaymentComment(event.target.value)} /></label>
               <button className="button" disabled={createPayment.isPending || !paymentTypeId || !Number.isInteger(Number(paymentAmount)) || Number(paymentAmount) <= 0} type="submit">{createPayment.isPending ? 'Добавляем…' : 'Добавить в баланс'}</button>
               {createPayment.isError && <p className="form-error">Не удалось добавить платёж: {createPayment.error.message}</p>}
+            </form>}
+            {adjustmentOpen && selectedUser && <form className="manual-payment" onSubmit={submitAdjustment}>
+              <strong>Корректировка баланса · {selectedUser.userName}</strong>
+              <p>На {displayDate(dateTo)}: {adjustmentPreview.isPending ? 'считаем…' : adjustmentPreview.data ? `${amount(adjustmentPreview.data.balanceBefore)} → 0 (корректировка ${adjustmentPreview.data.adjustmentAmount > 0 ? '+' : ''}${amount(adjustmentPreview.data.adjustmentAmount)})` : 'не удалось рассчитать'}</p>
+              <label className="manual-payment__comment">Причина<input required maxLength={1000} value={adjustmentReason} onChange={event => setAdjustmentReason(event.target.value)} placeholder="Например: закрытие старой погрешности" /></label>
+              <button className="button" disabled={closeBalance.isPending || !adjustmentPreview.data || adjustmentPreview.data.balanceBefore === 0 || !adjustmentReason.trim()} type="submit">{closeBalance.isPending ? 'Сохраняем…' : 'Зафиксировать корректировку'}</button>
+              {(adjustmentPreview.isError || closeBalance.isError) && <p className="form-error">Не удалось сохранить корректировку: {(adjustmentPreview.error || closeBalance.error)?.message}</p>}
             </form>}
             {!selectedUser && <p className="balances-detail__prompt">Нажмите на участника, чтобы увидеть недельные итоги.</p>}
             {selectedUser && detailQuery.isPending && <LoadingState label="Загружаем детализацию…" />}
@@ -165,6 +203,7 @@ export function BalancesPage() {
                     <div className="week-card__summary">
                       <div className="summary-paid"><small>Получено в эту неделю</small><strong>+{amount(week.positive)}</strong></div>
                       <div className="summary-charged"><small>Готовки этой недели</small><strong>−{amount(week.negative)}</strong></div>
+                      {week.adjustment !== 0 && <div><small>Корректировка</small><strong>{week.adjustment > 0 ? '+' : ''}{amount(week.adjustment)}</strong></div>}
                       <div className={week.weeklyDelta < 0 ? 'summary-delta is-negative' : 'summary-delta is-positive'}><small>Изменение баланса</small><strong>{week.weeklyDelta > 0 ? '+' : ''}{amount(week.weeklyDelta)}</strong></div>
                     </div>
                     <div className="week-card__activity">
@@ -174,6 +213,7 @@ export function BalancesPage() {
                       <section><h4>Платежи по дате получения <span>{week.payments.length}</span></h4>
                         {week.payments.length === 0 ? <p>Платежей не было</p> : week.payments.map(payment => <div className="activity-row" key={payment.id}><span><time>{displayDate(payment.paymentDate)}</time>{payment.paymentTypeName}<small>{payment.source}{payment.comment ? ` · ${payment.comment}` : ''}</small></span><strong className="activity-payment">+{amount(payment.amount)}</strong>{hasRole('editor') && <button className="payment-delete" type="button" disabled={deletePayment.isPending} aria-label={`Удалить платёж ${amount(payment.amount)} от ${displayDate(payment.paymentDate)}`} onClick={() => requestPaymentDeletion(payment)}>Удалить</button>}</div>)}
                       </section>
+                      {week.adjustments.length > 0 && <section><h4>Корректировки <span>{week.adjustments.length}</span></h4>{week.adjustments.map(item => <div className="activity-row" key={item.id}><span><time>{displayDate(item.adjustmentDate)}</time>{item.reason}<small>Баланс до: {amount(item.balanceBefore)}{item.createdByName ? ` · ${item.createdByName}` : ''}</small></span><strong className={item.amount < 0 ? 'activity-charge' : 'activity-payment'}>{item.amount > 0 ? '+' : ''}{amount(item.amount)}</strong></div>)}</section>}
                     </div>
                   </article>
                 ))}

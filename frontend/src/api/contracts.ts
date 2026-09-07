@@ -235,6 +235,7 @@ export type UserBalance = {
   negative: number
   cooksCount: number
   cumulativeBalance: number
+  adjustments: number
 }
 
 export type BalancesResponse = {
@@ -253,8 +254,26 @@ export type WeekBalance = {
   cooksCount: number
   weeklyDelta: number
   cumulativeBalance: number
+  adjustment: number
   payments: BalancePayment[]
   cooks: BalanceCook[]
+  adjustments: BalanceAdjustment[]
+}
+
+export type BalanceAdjustment = {
+  id: UUID
+  adjustmentDate: IsoDate
+  amount: number
+  balanceBefore: number
+  reason: string
+  createdAt: string
+  createdByName: string | null
+}
+
+export type CloseBalancePreview = {
+  adjustmentDate: IsoDate
+  balanceBefore: number
+  adjustmentAmount: number
 }
 
 export type BalancePayment = {
@@ -307,14 +326,20 @@ export type ZenMoneySettings = {
   paymentTypeId: UUID | null
   serverTimestamp: number
   lastSyncAt: string | null
+  accounts: ZenMoneyConfiguredAccount[]
   blacklist: string[]
   paymentTypes: ZenMoneyPaymentType[]
 }
-export type SaveZenMoneySettingsRequest = {
-  accessToken?: string
+export type ZenMoneyConfiguredAccount = {
   accountId: string
   accountTitle: string
   paymentTypeId: UUID
+  serverTimestamp: number
+  lastSyncAt: string | null
+}
+export type SaveZenMoneySettingsRequest = {
+  accessToken?: string
+  accounts: Array<{ accountId: string; accountTitle: string; paymentTypeId: UUID }>
   blacklist: string[]
 }
 export type ZenMoneySyncResult = {
@@ -329,6 +354,8 @@ export type ZenMoneySyncResult = {
 export type ZenMoneyBulkApproveResult = { approved: number; skipped: number }
 export type ZenMoneyTransaction = {
   id: UUID
+  accountId: string
+  accountTitle: string
   transactionDate: IsoDate
   amount: number
   payee: string | null

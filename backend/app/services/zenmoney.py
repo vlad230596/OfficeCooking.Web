@@ -18,6 +18,7 @@ from app.api.contracts.zenmoney import (
     SaveZenMoneySettingsRequest,
     ZenMoneyAccountResponse,
     ZenMoneyBulkApproveResponse,
+    ZenMoneyConfiguredAccountResponse,
     ZenMoneyPaymentTypeResponse,
     ZenMoneySettingsResponse,
     ZenMoneySyncResponse,
@@ -29,6 +30,7 @@ from app.models import (
     PaymentType,
     User,
     UserContact,
+    ZenMoneyAccountConfig,
     ZenMoneyBlacklistEntry,
     ZenMoneyMatchRule,
     ZenMoneySettings,
@@ -68,9 +70,7 @@ def _fernet(settings: Settings) -> Fernet:
     if not value and settings.environment.casefold() == "production":
         database_secret = settings.database_password.get_secret_value()
         value = base64.urlsafe_b64encode(
-            hashlib.sha256(
-                b"office-cooking:zenmoney:v1:" + database_secret.encode()
-            ).digest()
+            hashlib.sha256(b"office-cooking:zenmoney:v1:" + database_secret.encode()).digest()
         ).decode()
     if not value:
         raise ZenMoneyError(
@@ -159,6 +159,15 @@ def accounts_from_diff(diff: dict[str, Any]) -> list[ZenMoneyAccountResponse]:
 
 async def get_settings_response(session: AsyncSession) -> ZenMoneySettingsResponse:
     configured = await session.get(ZenMoneySettings, 1)
+    accounts = (
+        (
+            await session.execute(
+                select(ZenMoneyAccountConfig).order_by(ZenMoneyAccountConfig.account_title)
+            )
+        )
+        .scalars()
+        .all()
+    )
     payment_types = (
         await session.execute(
             select(PaymentType).where(PaymentType.enabled.is_(True)).order_by(PaymentType.name)
@@ -170,13 +179,23 @@ async def get_settings_response(session: AsyncSession) -> ZenMoneySettingsRespon
         )
     ).scalars()
     return ZenMoneySettingsResponse(
-        configured=configured is not None,
+        configured=configured is not None and bool(accounts),
         token_configured=configured is not None,
         account_id=configured.account_id if configured else None,
         account_title=configured.account_title if configured else None,
         payment_type_id=configured.payment_type_id if configured else None,
         server_timestamp=configured.server_timestamp if configured else 0,
         last_sync_at=configured.last_sync_at if configured else None,
+        accounts=[
+            ZenMoneyConfiguredAccountResponse(
+                account_id=item.account_id,
+                account_title=item.account_title,
+                payment_type_id=item.payment_type_id,
+                server_timestamp=item.server_timestamp,
+                last_sync_at=item.last_sync_at,
+            )
+            for item in accounts
+        ],
         blacklist=list(blacklist),
         payment_types=[
             ZenMoneyPaymentTypeResponse(id=item.id, name=item.name) for item in payment_types
@@ -187,51 +206,81 @@ async def get_settings_response(session: AsyncSession) -> ZenMoneySettingsRespon
 async def save_settings(
     session: AsyncSession, request: SaveZenMoneySettingsRequest, settings: Settings
 ) -> ZenMoneySettingsResponse:
-    payment_type = await session.get(PaymentType, request.payment_type_id)
-    if payment_type is None or not payment_type.enabled:
-        raise ZenMoneyError("Payment type was not found.", code="payment_type_not_found")
+    return await _save_multi_account_settings(session, request, settings)
+
+
+async def _save_multi_account_settings(
+    session: AsyncSession, request: SaveZenMoneySettingsRequest, settings: Settings
+) -> ZenMoneySettingsResponse:
     current = await session.get(ZenMoneySettings, 1)
     if current is None and request.access_token is None:
         raise ZenMoneyError("Access token is required.", code="token_required")
+    for requested in request.accounts:
+        payment_type = await session.get(PaymentType, requested.payment_type_id)
+        if payment_type is None or not payment_type.enabled:
+            raise ZenMoneyError("Payment type was not found.", code="payment_type_not_found")
     supplied_token = (
         request.access_token.get_secret_value()
         if request.access_token is not None
         else decrypt_token(current.access_token_ciphertext, settings)  # type: ignore[union-attr]
     )
-    available_accounts = accounts_from_diff(await request_diff(supplied_token, 0))
-    selected_account = next(
-        (account for account in available_accounts if account.id == request.account_id), None
-    )
-    if selected_account is None:
+    available = {
+        item.id: item for item in accounts_from_diff(await request_diff(supplied_token, 0))
+    }
+    if any(item.account_id not in available for item in request.accounts):
         raise ZenMoneyError(
-            "Selected account was not returned by ZenMoney.", code="account_not_found"
+            "A selected account was not returned by ZenMoney.", code="account_not_found"
         )
-    selected_title = " · ".join(
-        value for value in (selected_account.company_title, selected_account.title) if value
+    requested_ids = {item.account_id for item in request.accounts}
+    first = request.accounts[0]
+    first_remote = available[first.account_id]
+    first_title = " · ".join(
+        value for value in (first_remote.company_title, first_remote.title) if value
     )
     if current is None:
         current = ZenMoneySettings(
             id=1,
-            access_token_ciphertext=encrypt_token(
-                request.access_token.get_secret_value(),
-                settings,  # type: ignore[union-attr]
-            ),
-            account_id=request.account_id,
-            account_title=selected_title,
-            payment_type_id=request.payment_type_id,
+            access_token_ciphertext=encrypt_token(supplied_token, settings),
+            account_id=first.account_id,
+            account_title=first_title,
+            payment_type_id=first.payment_type_id,
             server_timestamp=0,
         )
         session.add(current)
     else:
         if request.access_token is not None:
-            current.access_token_ciphertext = encrypt_token(
-                request.access_token.get_secret_value(), settings
+            current.access_token_ciphertext = encrypt_token(supplied_token, settings)
+        current.account_id = first.account_id
+        current.account_title = first_title
+        current.payment_type_id = first.payment_type_id
+
+    existing = {
+        item.account_id: item
+        for item in (await session.execute(select(ZenMoneyAccountConfig))).scalars().all()
+    }
+    await session.execute(
+        delete(ZenMoneyAccountConfig).where(ZenMoneyAccountConfig.account_id.not_in(requested_ids))
+    )
+    configs: dict[str, ZenMoneyAccountConfig] = {}
+    for requested in request.accounts:
+        remote = available[requested.account_id]
+        title = " · ".join(value for value in (remote.company_title, remote.title) if value)
+        config = existing.get(requested.account_id)
+        if config is None:
+            config = ZenMoneyAccountConfig(
+                account_id=requested.account_id,
+                account_title=title,
+                payment_type_id=requested.payment_type_id,
+                server_timestamp=0,
             )
-        if request.access_token is not None or current.account_id != request.account_id:
-            current.server_timestamp = 0
-        current.account_id = request.account_id
-        current.account_title = selected_title
-        current.payment_type_id = request.payment_type_id
+            session.add(config)
+        else:
+            config.account_title = title
+            config.payment_type_id = requested.payment_type_id
+            if request.access_token is not None:
+                config.server_timestamp = 0
+        configs[config.account_id] = config
+
     await session.execute(delete(ZenMoneyBlacklistEntry))
     session.add_all(
         [ZenMoneyBlacklistEntry(id=uuid.uuid4(), pattern=value) for value in request.blacklist]
@@ -239,52 +288,28 @@ async def save_settings(
     await session.flush()
     users = await _users_with_contacts(session)
     learned_rules = await _learned_rules(session)
-    current_blacklist = request.blacklist
-    automatic = (
+    transactions = (
         await session.execute(
             select(ZenMoneyTransaction).where(
-                ZenMoneyTransaction.account_id == current.account_id,
-                ZenMoneyTransaction.decision_source == "automatic",
+                ZenMoneyTransaction.account_id.in_(requested_ids),
                 ZenMoneyTransaction.deleted.is_(False),
             )
         )
     ).scalars()
-    for transaction in automatic:
-        if transaction.hold:
-            transaction.status = "review"
-            transaction.user_id = None
-            transaction.match_reason = "transaction is on hold"
-            await _deactivate_payment(session, transaction)
-            continue
-        sender = " ".join(
-            value
-            for value in (
-                transaction.payee,
-                transaction.original_payee,
-                transaction.comment,
+    for transaction in transactions:
+        if transaction.decision_source == "automatic":
+            match = match_sender(_sender_text(transaction), users, request.blacklist, learned_rules)
+            transaction.status = "review" if transaction.hold else match.status
+            transaction.user_id = None if transaction.hold else match.user_id
+            transaction.match_reason = (
+                "transaction is on hold" if transaction.hold else match.reason
             )
-            if value
-        )
-        match = match_sender(sender, users, current_blacklist, learned_rules)
-        transaction.status = match.status
-        transaction.user_id = match.user_id
-        transaction.match_reason = match.reason
         if transaction.status == "matched" and transaction.payment_id is not None:
-            await _upsert_payment(session, transaction, current, create_if_missing=False)
-        else:
-            await _deactivate_payment(session, transaction)
-    manual_matches = (
-        await session.execute(
-            select(ZenMoneyTransaction).where(
-                ZenMoneyTransaction.account_id == current.account_id,
-                ZenMoneyTransaction.decision_source == "manual",
-                ZenMoneyTransaction.status == "matched",
+            await _upsert_payment(
+                session, transaction, configs[transaction.account_id], create_if_missing=False
             )
-        )
-    ).scalars()
-    for transaction in manual_matches:
-        if transaction.payment_id is not None:
-            await _upsert_payment(session, transaction, current, create_if_missing=False)
+        elif transaction.status != "matched":
+            await _deactivate_payment(session, transaction)
     await session.commit()
     return await get_settings_response(session)
 
@@ -466,7 +491,7 @@ async def _deactivate_payment(session: AsyncSession, transaction: ZenMoneyTransa
 async def _upsert_payment(
     session: AsyncSession,
     transaction: ZenMoneyTransaction,
-    configured: ZenMoneySettings,
+    configured: ZenMoneySettings | ZenMoneyAccountConfig,
     *,
     create_if_missing: bool,
 ) -> bool:
@@ -555,15 +580,10 @@ def should_process_existing_transaction(
     return incoming or transaction.account_id == selected_account_id
 
 
-async def sync(session: AsyncSession, settings: Settings) -> ZenMoneySyncResponse:
-    configured = await session.scalar(
-        select(ZenMoneySettings).where(ZenMoneySettings.id == 1).with_for_update()
-    )
-    if configured is None:
-        raise ZenMoneyError("ZenMoney is not configured.", code="not_configured")
-    diff = await request_diff(
-        decrypt_token(configured.access_token_ciphertext, settings), configured.server_timestamp
-    )
+async def _sync_account(
+    session: AsyncSession, configured: ZenMoneyAccountConfig, token: str
+) -> ZenMoneySyncResponse:
+    diff = await request_diff(token, configured.server_timestamp)
     users = await _users_with_contacts(session)
     blacklist = list((await session.execute(select(ZenMoneyBlacklistEntry.pattern))).scalars())
     learned_rules = await _learned_rules(session)
@@ -665,15 +685,56 @@ async def sync(session: AsyncSession, settings: Settings) -> ZenMoneySyncRespons
     )
 
 
+async def sync(session: AsyncSession, settings: Settings) -> ZenMoneySyncResponse:
+    credentials = await session.scalar(
+        select(ZenMoneySettings).where(ZenMoneySettings.id == 1).with_for_update()
+    )
+    configs = (
+        (
+            await session.execute(
+                select(ZenMoneyAccountConfig)
+                .order_by(ZenMoneyAccountConfig.account_title)
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if credentials is None or not configs:
+        raise ZenMoneyError("ZenMoney is not configured.", code="not_configured")
+    token = decrypt_token(credentials.access_token_ciphertext, settings)
+    totals = {
+        "received": 0,
+        "created": 0,
+        "updated": 0,
+        "matched": 0,
+        "review": 0,
+        "blacklisted": 0,
+    }
+    timestamp = 0
+    for config in configs:
+        result = await _sync_account(session, config, token)
+        timestamp = max(timestamp, result.server_timestamp)
+        for key in totals:
+            totals[key] += getattr(result, key)
+    credentials.server_timestamp = timestamp
+    credentials.last_sync_at = datetime.now(UTC)
+    await session.commit()
+    return ZenMoneySyncResponse(server_timestamp=timestamp, **totals)
+
+
 async def approve_all_matched(session: AsyncSession) -> ZenMoneyBulkApproveResponse:
-    configured = await session.get(ZenMoneySettings, 1)
-    if configured is None:
+    configs = {
+        item.account_id: item
+        for item in (await session.execute(select(ZenMoneyAccountConfig))).scalars().all()
+    }
+    if not configs:
         raise ZenMoneyError("ZenMoney is not configured.", code="not_configured")
     transactions = (
         await session.execute(
             select(ZenMoneyTransaction)
             .where(
-                ZenMoneyTransaction.account_id == configured.account_id,
+                ZenMoneyTransaction.account_id.in_(configs),
                 ZenMoneyTransaction.status == "matched",
                 ZenMoneyTransaction.user_id.is_not(None),
                 ZenMoneyTransaction.payment_id.is_(None),
@@ -686,7 +747,9 @@ async def approve_all_matched(session: AsyncSession) -> ZenMoneyBulkApproveRespo
     approved = 0
     skipped = 0
     for transaction in transactions:
-        if await _upsert_payment(session, transaction, configured, create_if_missing=True):
+        if await _upsert_payment(
+            session, transaction, configs[transaction.account_id], create_if_missing=True
+        ):
             approved += 1
         else:
             skipped += 1
@@ -698,14 +761,14 @@ async def list_transactions(
     session: AsyncSession, *, include_blacklisted: bool, status: str | None
 ) -> list[ZenMoneyTransactionResponse]:
     query = (
-        select(ZenMoneyTransaction, User.name)
+        select(ZenMoneyTransaction, User.name, ZenMoneyAccountConfig.account_title)
         .outerjoin(User, User.id == ZenMoneyTransaction.user_id)
+        .join(
+            ZenMoneyAccountConfig,
+            ZenMoneyAccountConfig.account_id == ZenMoneyTransaction.account_id,
+        )
         .order_by(ZenMoneyTransaction.transaction_date.desc(), ZenMoneyTransaction.id)
     )
-    configured = await session.get(ZenMoneySettings, 1)
-    if configured is None:
-        return []
-    query = query.where(ZenMoneyTransaction.account_id == configured.account_id)
     if not include_blacklisted:
         query = query.where(ZenMoneyTransaction.status != "blacklisted")
     if status:
@@ -714,6 +777,8 @@ async def list_transactions(
     return [
         ZenMoneyTransactionResponse(
             id=item.id,
+            account_id=item.account_id,
+            account_title=account_title,
             transaction_date=item.transaction_date,
             amount=item.amount,
             payee=item.payee,
@@ -728,7 +793,7 @@ async def list_transactions(
             user_name=user_name,
             payment_id=item.payment_id,
         )
-        for item, user_name in rows
+        for item, user_name, account_title in rows
     ]
 
 
@@ -739,7 +804,11 @@ async def decide(
     user_id: UUID | None,
 ) -> ZenMoneyTransactionResponse:
     transaction = await session.get(ZenMoneyTransaction, transaction_id)
-    configured = await session.get(ZenMoneySettings, 1)
+    configured = (
+        await session.get(ZenMoneyAccountConfig, transaction.account_id)
+        if transaction is not None
+        else None
+    )
     if transaction is None or configured is None:
         raise ZenMoneyError(
             "Transaction was not found.", code="transaction_not_found", status_code=404

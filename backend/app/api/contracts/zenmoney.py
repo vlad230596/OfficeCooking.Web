@@ -28,6 +28,14 @@ class ZenMoneyPaymentTypeResponse(ApiModel):
     name: str
 
 
+class ZenMoneyConfiguredAccountResponse(ApiModel):
+    account_id: str
+    account_title: str
+    payment_type_id: UUID
+    server_timestamp: int
+    last_sync_at: datetime | None = None
+
+
 class ZenMoneySettingsResponse(ApiModel):
     configured: bool
     token_configured: bool
@@ -36,15 +44,20 @@ class ZenMoneySettingsResponse(ApiModel):
     payment_type_id: UUID | None = None
     server_timestamp: int = 0
     last_sync_at: datetime | None = None
+    accounts: list[ZenMoneyConfiguredAccountResponse] = Field(default_factory=list)
     blacklist: list[str] = Field(default_factory=list)
     payment_types: list[ZenMoneyPaymentTypeResponse] = Field(default_factory=list)
 
 
-class SaveZenMoneySettingsRequest(ApiModel):
-    access_token: SecretStr | None = None
+class SaveZenMoneyAccountRequest(ApiModel):
     account_id: str = Field(min_length=1, max_length=200)
     account_title: str = Field(min_length=1, max_length=500)
     payment_type_id: UUID
+
+
+class SaveZenMoneySettingsRequest(ApiModel):
+    access_token: SecretStr | None = None
+    accounts: list[SaveZenMoneyAccountRequest] = Field(min_length=1, max_length=50)
     blacklist: list[str] = Field(default_factory=list, max_length=500)
 
     @model_validator(mode="after")
@@ -52,6 +65,9 @@ class SaveZenMoneySettingsRequest(ApiModel):
         values = [value.strip() for value in self.blacklist if value.strip()]
         if len({value.casefold() for value in values}) != len(values):
             raise ValueError("blacklist entries must be unique")
+        account_ids = [value.account_id for value in self.accounts]
+        if len(set(account_ids)) != len(account_ids):
+            raise ValueError("account IDs must be unique")
         self.blacklist = values
         return self
 
@@ -73,6 +89,8 @@ class ZenMoneyBulkApproveResponse(ApiModel):
 
 class ZenMoneyTransactionResponse(ApiModel):
     id: UUID
+    account_id: str
+    account_title: str
     transaction_date: date
     amount: float
     payee: str | None = None

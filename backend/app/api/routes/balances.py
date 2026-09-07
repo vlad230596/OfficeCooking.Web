@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import date
 from typing import Annotated
 from uuid import UUID
 
@@ -12,19 +13,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.contracts import (
     ApiError,
+    BalanceAdjustmentResponse,
     BalancesQuery,
     BalancesResponse,
+    CloseBalanceAdjustmentRequest,
+    CloseBalancePreviewResponse,
     CreateBalancePaymentRequest,
     DateRangeQuery,
     ErrorEnvelope,
     UserBalanceDetailResponse,
 )
 from app.services.balances import (
+    BalanceChangedError,
     BalanceDataError,
     BalanceService,
     PaymentNotFoundError,
     PaymentTypeNotFoundError,
     UserNotFoundError,
+    ZeroBalanceError,
 )
 
 router = APIRouter(prefix="/api/v1/balances", tags=["balances"])
@@ -147,6 +153,50 @@ async def create_user_payment(
             "Payment type was not found.",
             paymentTypeId=str(body.payment_type_id),
         )
+
+
+@router.get(
+    "/users/{userId}/adjustments/close-preview",
+    response_model=CloseBalancePreviewResponse,
+    responses={404: {"model": ErrorEnvelope}, 500: {"model": ErrorEnvelope}},
+)
+async def close_balance_preview(
+    request: Request,
+    user_id: Annotated[UUID, Path(alias="userId")],
+    adjustment_date: Annotated[date, Query(alias="adjustmentDate")],
+    service: Annotated[BalanceService, Depends(get_balance_service)],
+) -> CloseBalancePreviewResponse | JSONResponse:
+    try:
+        return await service.close_balance_preview(user_id, adjustment_date)
+    except UserNotFoundError:
+        return _error_response(request, 404, "user_not_found", "User was not found.")
+
+
+@router.post(
+    "/users/{userId}/adjustments/close",
+    response_model=BalanceAdjustmentResponse,
+    responses={404: {"model": ErrorEnvelope}, 409: {"model": ErrorEnvelope}},
+)
+async def close_balance(
+    request: Request,
+    user_id: Annotated[UUID, Path(alias="userId")],
+    body: CloseBalanceAdjustmentRequest,
+    service: Annotated[BalanceService, Depends(get_balance_service)],
+) -> BalanceAdjustmentResponse | JSONResponse:
+    try:
+        return await service.close_balance(
+            user_id,
+            body,
+            getattr(getattr(request.state, "principal", None), "user_id", None),
+        )
+    except UserNotFoundError:
+        return _error_response(request, 404, "user_not_found", "User was not found.")
+    except BalanceChangedError:
+        return _error_response(
+            request, 409, "balance_changed", "Balance changed; refresh the preview and retry."
+        )
+    except ZeroBalanceError:
+        return _error_response(request, 409, "balance_already_zero", "Balance is already zero.")
 
 
 @router.post(

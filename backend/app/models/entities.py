@@ -149,6 +149,20 @@ class ZenMoneySettings(Base):
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class ZenMoneyAccountConfig(Base):
+    __tablename__ = "zenmoney_account_configs"
+
+    account_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    account_title: Mapped[str] = mapped_column(Text, nullable=False)
+    payment_type_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("payment_types.id", ondelete="RESTRICT"), nullable=False
+    )
+    server_timestamp: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=text("0")
+    )
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class ZenMoneyBlacklistEntry(Base):
     __tablename__ = "zenmoney_blacklist_entries"
     __table_args__ = (
@@ -207,6 +221,28 @@ class ZenMoneyTransaction(Base):
     )
     payment_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("payments.id", ondelete="SET NULL"), unique=True
+    )
+
+
+class BalanceAdjustment(Base):
+    __tablename__ = "balance_adjustments"
+    __table_args__ = (
+        CheckConstraint("amount <> 0", name="amount_nonzero"),
+        CheckConstraint("length(trim(reason)) > 0", name="reason_nonempty"),
+        Index("ix_balance_adjustments_user_date", "user_id", "adjustment_date"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    adjustment_date: Mapped[date] = mapped_column(Date, nullable=False)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    balance_before: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
 
 

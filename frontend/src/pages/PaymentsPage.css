@@ -38,3 +38,11 @@
   .payment-card__actions select { grid-column: 1 / -1; }
   .zen-settings__grid { grid-template-columns: 1fr; }
 }
+/* Multi-account ZenMoney settings. */
+.zen-account-list { display: grid; gap: .65rem; grid-column: 1 / -1; }
+.zen-account-row { display: grid; grid-template-columns: minmax(16rem, 1fr) minmax(12rem, .6fr); gap: .75rem; align-items: center; }
+.payment-card__account { display: inline-block; margin-top: .25rem; color: var(--color-text-muted, #746f66); }
+
+@media (max-width: 700px) {
+  .zen-account-row { grid-template-columns: 1fr; }
+}

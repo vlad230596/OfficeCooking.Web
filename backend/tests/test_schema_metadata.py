@@ -5,6 +5,8 @@ from sqlalchemy.schema import CreateTable
 from app.models import Base
 
 EXPECTED_TABLES = {
+    "balance_adjustments",
+    "zenmoney_account_configs",
     "zenmoney_settings",
     "zenmoney_blacklist_entries",
     "zenmoney_match_rules",

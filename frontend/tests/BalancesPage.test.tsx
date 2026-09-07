@@ -39,11 +39,11 @@ describe('BalancesPage', () => {
     const userId = '00000000-0000-0000-0000-000000000001'
     mockedListBalances.mockResolvedValue({
       dateFrom: '2023-06-05', dateTo: '2026-08-19', ordering: { fields: [] },
-      items: [{ userId, userName: 'Анна', positive: 1500, negative: -900, cooksCount: 3, cumulativeBalance: 600 }],
+      items: [{ userId, userName: 'Анна', positive: 1500, negative: -900, cooksCount: 3, cumulativeBalance: 600, adjustments: 0 }],
     })
     mockedGetUserBalance.mockResolvedValue({
       userId, userName: 'Анна', dateFrom: '2023-06-05', dateTo: '2026-08-19', ordering: { fields: [] }, paymentTypes: [{ id: '00000000-0000-0000-0000-000000000002', name: 'Alpha' }],
-      weeks: [{ year: 2026, week: 34, display: '17–23 августа', positive: 500, negative: 300, cooksCount: 1, weeklyDelta: 200, cumulativeBalance: 600, payments: [], cooks: [] }],
+      weeks: [{ year: 2026, week: 34, display: '17–23 августа', positive: 500, negative: 300, cooksCount: 1, weeklyDelta: 200, cumulativeBalance: 600, adjustment: 0, payments: [], cooks: [], adjustments: [] }],
     })
     renderPage()
     fireEvent.click((await screen.findAllByRole('button', { name: 'Анна' }))[0])

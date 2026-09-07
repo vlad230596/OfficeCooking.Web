@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import Field, model_validator
@@ -30,6 +31,7 @@ class UserBalanceResponse(ApiModel):
     negative: int = Field(ge=0)
     cooks_count: int = Field(ge=0)
     cumulative_balance: int
+    adjustments: int = 0
 
 
 class BalancesResponse(ApiModel):
@@ -60,6 +62,28 @@ class CreateBalancePaymentRequest(ApiModel):
     comment: str = Field(default="", max_length=1000)
 
 
+class CloseBalanceAdjustmentRequest(ApiModel):
+    adjustment_date: IsoDate
+    expected_balance: int
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class BalanceAdjustmentResponse(ApiModel):
+    id: UUID
+    adjustment_date: IsoDate
+    amount: int
+    balance_before: int
+    reason: str
+    created_at: datetime
+    created_by_name: str | None = None
+
+
+class CloseBalancePreviewResponse(ApiModel):
+    adjustment_date: IsoDate
+    balance_before: int
+    adjustment_amount: int
+
+
 class BalanceCookResponse(ApiModel):
     id: UUID
     cook_date: IsoDate
@@ -76,8 +100,10 @@ class WeekBalanceResponse(ApiModel):
     cooks_count: int = Field(ge=0)
     weekly_delta: int
     cumulative_balance: int
+    adjustment: int = 0
     payments: list[BalancePaymentResponse] = Field(default_factory=list)
     cooks: list[BalanceCookResponse] = Field(default_factory=list)
+    adjustments: list[BalanceAdjustmentResponse] = Field(default_factory=list)
 
 
 class UserBalanceDetailResponse(ApiModel):

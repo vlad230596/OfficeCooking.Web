@@ -34,7 +34,7 @@
 .week-card__balance strong { font-size: 18px; }
 .week-card__balance.is-positive strong, .summary-paid strong, .summary-delta.is-positive strong, .activity-payment { color: var(--green); }
 .week-card__balance.is-negative strong, .summary-charged strong, .summary-delta.is-negative strong, .activity-charge { color: #a83d1d; }
-.week-card__summary { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--line); background: #fbfaf6; }
+.week-card__summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); border-bottom: 1px solid var(--line); background: #fbfaf6; }
 .week-card__summary > div { display: grid; gap: 2px; padding: 9px 13px; border-right: 1px solid var(--line); }
 .week-card__summary > div:last-child { border-right: 0; }
 .week-card__summary strong { font-size: 15px; font-variant-numeric: tabular-nums; }
@@ -81,3 +81,5 @@
   .manual-payment { grid-template-columns: 1fr; }
   .manual-payment__comment { grid-column: auto; }
 }
+/* Payment and audited-adjustment controls share the detail header. */
+.balance-actions { display: flex; gap: .5rem; flex-wrap: wrap; justify-content: flex-end; }

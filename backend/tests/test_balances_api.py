@@ -54,9 +54,9 @@ def test_balance_query_uses_member_discount_snapshot_not_current_user_value() ->
 
 
 @pytest.mark.asyncio
-async def test_service_uses_a_bounded_four_query_set() -> None:
+async def test_service_uses_a_bounded_five_query_set() -> None:
     user = SimpleNamespace(id=_id(0), name="One")
-    results = [[user], [], [], []]
+    results = [[user], [], [], [], []]
 
     class FakeSession:
         def __init__(self) -> None:
@@ -71,7 +71,7 @@ async def test_service_uses_a_bounded_four_query_set() -> None:
     response = await BalanceService(session).list_balances(  # type: ignore[arg-type]
         date(2023, 6, 5), date(2023, 6, 5)
     )
-    assert session.calls == 4
+    assert session.calls == 5
     assert response.items[0].cumulative_balance == 0
 
 

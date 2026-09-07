@@ -1,6 +1,7 @@
 from .base import Base
 from .entities import (
     AuthSession,
+    BalanceAdjustment,
     Cook,
     CookMember,
     CookMemberVote,
@@ -14,6 +15,7 @@ from .entities import (
     TemplateVoteVariant,
     User,
     UserContact,
+    ZenMoneyAccountConfig,
     ZenMoneyBlacklistEntry,
     ZenMoneyMatchRule,
     ZenMoneySettings,
@@ -23,6 +25,7 @@ from .entities import (
 __all__ = [
     "Base",
     "AuthSession",
+    "BalanceAdjustment",
     "Cook",
     "CookMember",
     "CookMemberVote",
@@ -37,6 +40,7 @@ __all__ = [
     "User",
     "UserContact",
     "ZenMoneyBlacklistEntry",
+    "ZenMoneyAccountConfig",
     "ZenMoneyMatchRule",
     "ZenMoneySettings",
     "ZenMoneyTransaction",

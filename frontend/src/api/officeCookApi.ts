@@ -9,6 +9,7 @@ import type {
   CookSummary,
   CreateCookRequest,
   CreateBalancePaymentRequest,
+  CloseBalancePreview,
   DraftCookPreviewRequest,
   DraftCookPreviewResponse,
   EnabledFilter,
@@ -137,6 +138,14 @@ export function deleteUserPayment(userId: UUID, paymentId: UUID): Promise<void> 
 
 export function createUserPayment(userId: UUID, request: CreateBalancePaymentRequest): Promise<void> {
   return apiRequest(`balances/users/${encodeURIComponent(userId)}/payments`, { method: 'POST', body: request })
+}
+
+export function getCloseBalancePreview(userId: UUID, adjustmentDate: IsoDate): Promise<CloseBalancePreview> {
+  return apiRequest(withSearchParams(`balances/users/${encodeURIComponent(userId)}/adjustments/close-preview`, { adjustmentDate }))
+}
+
+export function closeUserBalance(userId: UUID, request: { adjustmentDate: IsoDate; expectedBalance: number; reason: string }): Promise<void> {
+  return apiRequest(`balances/users/${encodeURIComponent(userId)}/adjustments/close`, { method: 'POST', body: request })
 }
 
 export function getZenMoneySettings({ signal }: WithSignal = {}): Promise<ZenMoneySettings> {

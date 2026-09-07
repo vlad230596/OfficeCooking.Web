@@ -117,6 +117,10 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 утрате или ротации ключа сохранённый токен расшифровать нельзя — администратор должен
 ввести токен ZenMoney заново.
 
+Для совместимости с уже развёрнутыми серверами backend в production может вывести ключ
+из `POSTGRES_PASSWORD`, если отдельный `OFFICE_COOK_ZENMONEY_ENCRYPTION_KEY` ещё не
+передаётся контейнеру. Отдельный Fernet-ключ остаётся предпочтительным вариантом.
+
 Правила:
 
 - `APP_DOMAIN` содержит только hostname, без схемы, порта и завершающего `/`;

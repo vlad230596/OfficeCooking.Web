@@ -46,7 +46,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.session_factory = create_session_factory(engine)
         sync_task = None
         encryption_key = resolved_settings.zenmoney_encryption_key
-        if encryption_key is not None and encryption_key.get_secret_value():
+        if (
+            encryption_key is not None and encryption_key.get_secret_value()
+        ) or resolved_settings.environment.casefold() == "production":
             sync_task = asyncio.create_task(
                 _run_zenmoney_sync(app, resolved_settings.zenmoney_sync_interval_minutes)
             )

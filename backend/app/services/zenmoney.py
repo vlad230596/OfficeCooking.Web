@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import re
 import uuid
 from dataclasses import dataclass
@@ -62,14 +64,22 @@ class LearnedRule:
 
 def _fernet(settings: Settings) -> Fernet:
     secret = settings.zenmoney_encryption_key
-    if secret is None or not secret.get_secret_value():
+    value = secret.get_secret_value() if secret is not None else ""
+    if not value and settings.environment.casefold() == "production":
+        database_secret = settings.database_password.get_secret_value()
+        value = base64.urlsafe_b64encode(
+            hashlib.sha256(
+                b"office-cooking:zenmoney:v1:" + database_secret.encode()
+            ).digest()
+        ).decode()
+    if not value:
         raise ZenMoneyError(
             "ZenMoney encryption key is not configured on the server.",
             code="encryption_key_missing",
             status_code=503,
         )
     try:
-        return Fernet(secret.get_secret_value().encode())
+        return Fernet(value.encode())
     except (ValueError, TypeError) as error:
         raise ZenMoneyError(
             "ZenMoney encryption key is invalid.",

@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from cryptography.fernet import Fernet
+from pydantic import SecretStr
 
 from app.config import Settings
 from app.models import User
@@ -25,6 +26,20 @@ def test_access_token_is_encrypted_and_can_only_be_read_with_server_key() -> Non
 
     assert "secret-access-token" not in ciphertext
     assert decrypt_token(ciphertext, settings) == "secret-access-token"
+
+
+def test_production_can_derive_token_key_from_database_password() -> None:
+    settings = Settings(
+        environment="production",
+        session_cookie_secure=True,
+        database_url="postgresql+asyncpg://officecook:secret@postgres/officecook",
+        database_password=SecretStr("a-long-production-database-password"),
+        zenmoney_encryption_key=None,
+    )
+    ciphertext = encrypt_token("production-token", settings)
+
+    assert "production-token" not in ciphertext
+    assert decrypt_token(ciphertext, settings) == "production-token"
 
 
 def test_blacklist_wins_before_user_matching() -> None:

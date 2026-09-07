@@ -91,7 +91,12 @@ async def authenticate_session(session: AsyncSession, token: str) -> Principal |
     if row is None:
         return None
     auth_session, user = row
-    if auth_session.expires_at <= datetime.now(UTC) or not user.auth_enabled:
+    expires_at = auth_session.expires_at
+    if expires_at.tzinfo is None:
+        # SQLite drops timezone metadata even for DateTime(timezone=True).
+        # Values are always written as UTC, so restore that information here.
+        expires_at = expires_at.replace(tzinfo=UTC)
+    if expires_at <= datetime.now(UTC) or not user.auth_enabled:
         await session.delete(auth_session)
         await session.commit()
         return None
@@ -114,6 +119,10 @@ def required_role(request: Request) -> Role:
         return "viewer"
     if path.startswith("/api/v1/auth/accounts"):
         return "admin"
+    if path.startswith("/api/v1/zenmoney/settings"):
+        return "admin"
+    if path.startswith("/api/v1/zenmoney"):
+        return "editor"
     if request.method in {"POST", "PUT", "PATCH"}:
         if path.startswith("/api/v1/users") or path.startswith("/api/v1/templates"):
             return "admin"

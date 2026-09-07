@@ -1,12 +1,15 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { getUserBalance, listBalances } from '../src/api'
+import { createUserPayment, deleteUserPayment, getUserBalance, listBalances } from '../src/api'
 import { BalancesPage } from '../src/pages/BalancesPage'
 
-vi.mock('../src/api', () => ({ listBalances: vi.fn(), getUserBalance: vi.fn() }))
+vi.mock('../src/api', () => ({ listBalances: vi.fn(), getUserBalance: vi.fn(), deleteUserPayment: vi.fn(), createUserPayment: vi.fn() }))
+vi.mock('../src/auth', () => ({ useAuth: () => ({ hasRole: () => true }) }))
 const mockedListBalances = vi.mocked(listBalances)
 const mockedGetUserBalance = vi.mocked(getUserBalance)
+const mockedDeleteUserPayment = vi.mocked(deleteUserPayment)
+const mockedCreateUserPayment = vi.mocked(createUserPayment)
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -17,6 +20,8 @@ describe('BalancesPage', () => {
   beforeEach(() => {
     mockedListBalances.mockReset()
     mockedGetUserBalance.mockReset()
+    mockedDeleteUserPayment.mockReset()
+    mockedCreateUserPayment.mockReset()
   })
 
   it('loads the default range and applies controlled filters', async () => {
@@ -37,15 +42,15 @@ describe('BalancesPage', () => {
       items: [{ userId, userName: 'Анна', positive: 1500, negative: -900, cooksCount: 3, cumulativeBalance: 600 }],
     })
     mockedGetUserBalance.mockResolvedValue({
-      userId, userName: 'Анна', dateFrom: '2023-06-05', dateTo: '2026-08-19', ordering: { fields: [] },
-      weeks: [{ year: 2026, week: 34, display: '17–23 августа', positive: 500, negative: -300, cooksCount: 1, weeklyDelta: 200, cumulativeBalance: 600 }],
+      userId, userName: 'Анна', dateFrom: '2023-06-05', dateTo: '2026-08-19', ordering: { fields: [] }, paymentTypes: [{ id: '00000000-0000-0000-0000-000000000002', name: 'Alpha' }],
+      weeks: [{ year: 2026, week: 34, display: '17–23 августа', positive: 500, negative: 300, cooksCount: 1, weeklyDelta: 200, cumulativeBalance: 600, payments: [], cooks: [] }],
     })
     renderPage()
     fireEvent.click((await screen.findAllByRole('button', { name: 'Анна' }))[0])
     await waitFor(() => expect(mockedGetUserBalance).toHaveBeenCalledWith(userId, expect.objectContaining({ dateFrom: '2023-06-05' })))
     expect(await screen.findByText('17–23 августа')).toBeInTheDocument()
-    expect(screen.getByText('Накопительно')).toBeInTheDocument()
-    expect(screen.queryByText(/плат[её]ж/i)).not.toBeInTheDocument()
+    expect(screen.getByText('На конец')).toBeInTheDocument()
+    expect(screen.getByText('Платежи по дате получения')).toBeInTheDocument()
   })
 
   it('shows retry and validates an inverted range', async () => {

@@ -1,7 +1,7 @@
 .balances-page { min-width: 0; }
 .balances-page__filters { flex-wrap: wrap; }
 .balances-page__validation { margin-bottom: 12px; padding: 9px 12px; border: 1px solid #e5b2a1; border-radius: 9px; color: #8f2f19; background: #fff3ed; font-size: 13px; }
-.balances-page__layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(390px, .9fr); gap: 10px; align-items: start; min-width: 0; }
+.balances-page__layout { display: grid; grid-template-columns: minmax(330px, .75fr) minmax(520px, 1.25fr); gap: 10px; align-items: start; min-width: 0; }
 .balances-panel { min-width: 0; max-height: calc(100vh - 218px); overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
 .balances-panel__heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 46px; padding: 7px 12px; border-bottom: 1px solid var(--line); }
 .balances-panel__heading h2 { display: inline; margin: 0 0 0 9px; font-size: 16px; }
@@ -22,10 +22,51 @@
 .amount--negative { color: #a83d1d; font-weight: 800; }
 .balances-detail__prompt { margin: 0; padding: 18px 12px; color: var(--muted); font-size: 13px; line-height: 1.4; }
 .balances-detail .state-card { min-height: 120px; margin: 10px; padding: 16px; }
+.week-ledger { display: grid; gap: 10px; max-height: calc(100vh - 265px); padding: 10px; overflow: auto; background: #f6f3ec; }
+.week-card { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.week-card__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; border-bottom: 1px solid var(--line); }
+.week-card__header h3 { margin: 2px 0 0; font-size: 15px; }
+.week-card__balance { display: grid; text-align: right; }
+.week-card__balances { display: flex; gap: 18px; align-items: end; }
+.week-card__balances > span { display: grid; text-align: right; }
+.week-card__balances > span:first-child strong { color: var(--muted); font-size: 14px; }
+.week-card__balance small, .week-card__summary small { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+.week-card__balance strong { font-size: 18px; }
+.week-card__balance.is-positive strong, .summary-paid strong, .summary-delta.is-positive strong, .activity-payment { color: var(--green); }
+.week-card__balance.is-negative strong, .summary-charged strong, .summary-delta.is-negative strong, .activity-charge { color: #a83d1d; }
+.week-card__summary { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--line); background: #fbfaf6; }
+.week-card__summary > div { display: grid; gap: 2px; padding: 9px 13px; border-right: 1px solid var(--line); }
+.week-card__summary > div:last-child { border-right: 0; }
+.week-card__summary strong { font-size: 15px; font-variant-numeric: tabular-nums; }
+.week-card__activity { display: grid; grid-template-columns: 1fr 1fr; }
+.week-card__activity > section { min-width: 0; padding: 10px 12px 12px; }
+.week-card__activity > section + section { border-left: 1px solid var(--line); }
+.week-card__activity h4 { display: flex; justify-content: space-between; margin: 0 0 7px; color: var(--muted); font-size: 11px; text-transform: uppercase; }
+.week-card__activity h4 span { min-width: 20px; text-align: center; }
+.week-card__activity section > p { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.activity-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 9px; align-items: center; padding: 6px 0; border-top: 1px dashed #e5e0d6; font-size: 12px; }
+.activity-row > span { display: grid; min-width: 0; overflow-wrap: anywhere; }
+.activity-row time { color: var(--muted); font-size: 10px; }
+.activity-row small { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.activity-row > strong { font-variant-numeric: tabular-nums; }
+.payment-delete { grid-column: 1 / -1; justify-self: start; padding: 0; border: 0; color: #9b3b2b; background: transparent; cursor: pointer; font-size: 10px; text-decoration: underline; }
+.payment-delete:disabled { cursor: wait; opacity: .5; }
+.balance-delete-error { margin: 10px; }
+.add-payment-button { flex: 0 0 auto; padding: 7px 11px; font-size: 11px; }
+.manual-payment { display: grid; grid-template-columns: repeat(3, minmax(110px, 1fr)) auto; gap: 9px; align-items: end; padding: 11px 12px; border-bottom: 1px solid var(--line); background: #fff9f3; }
+.manual-payment > strong { grid-column: 1 / -1; font-size: 12px; }
+.manual-payment label { display: grid; gap: 4px; min-width: 0; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.manual-payment input, .manual-payment select { min-width: 0; height: 34px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: var(--surface); font: inherit; text-transform: none; }
+.manual-payment__comment { grid-column: 1 / -2; }
+.manual-payment .button { min-height: 34px; }
+.manual-payment .form-error { grid-column: 1 / -1; margin: 0; }
 @media (max-width: 900px) {
   .balances-page__layout { grid-template-columns: minmax(0, 1fr); }
   .balances-panel { max-height: none; }
   .balances-table-wrap, .week-table-wrap { max-height: none; }
+  .week-ledger { max-height: none; }
+  .manual-payment { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .manual-payment__comment { grid-column: 1 / -1; }
 }
 @media (max-width: 767px) {
   .balances-page__filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
@@ -35,4 +76,8 @@
   .balances-table th:last-child, .balances-table td:last-child, .week-table th:last-child, .week-table td:last-child { padding-right: 7px; }
   .balances-table, .week-table { font-size: 11px; }
   .balances-table thead th, .week-table thead th { font-size: 8px; }
+  .week-card__activity { grid-template-columns: 1fr; }
+  .week-card__activity > section + section { border-top: 1px solid var(--line); border-left: 0; }
+  .manual-payment { grid-template-columns: 1fr; }
+  .manual-payment__comment { grid-column: auto; }
 }

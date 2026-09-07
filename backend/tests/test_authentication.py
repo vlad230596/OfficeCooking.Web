@@ -58,6 +58,9 @@ def test_route_permissions_match_the_public_role_matrix() -> None:
     assert required_role(request("PUT", "/api/v1/users/1")) == "admin"  # type: ignore[arg-type]
     assert required_role(request("GET", "/api/v1/auth/accounts")) == "admin"  # type: ignore[arg-type]
     assert required_role(request("POST", "/api/v1/auth/logout")) == "viewer"  # type: ignore[arg-type]
+    assert required_role(request("GET", "/api/v1/zenmoney/transactions")) == "editor"  # type: ignore[arg-type]
+    assert required_role(request("POST", "/api/v1/zenmoney/sync")) == "editor"  # type: ignore[arg-type]
+    assert required_role(request("GET", "/api/v1/zenmoney/settings")) == "admin"  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,10 @@
 from .balances import (
+    BalanceCookResponse,
+    BalancePaymentResponse,
+    BalancePaymentTypeResponse,
     BalancesQuery,
     BalancesResponse,
+    CreateBalancePaymentRequest,
     DateRangeQuery,
     UserBalanceDetailResponse,
     UserBalanceResponse,
@@ -29,9 +33,23 @@ from .errors import ApiError, ErrorEnvelope, FieldError
 from .pagination import OrderingMetadata, Page, PageQuery, SortField
 from .templates import TemplateDetailResponse, TemplateSummaryResponse
 from .users import UserResponse, UsersQuery
+from .zenmoney import (
+    DecideZenMoneyTransactionRequest,
+    SaveZenMoneySettingsRequest,
+    ZenMoneyAccountResponse,
+    ZenMoneyAccountsRequest,
+    ZenMoneyBulkApproveResponse,
+    ZenMoneyPaymentTypeResponse,
+    ZenMoneySettingsResponse,
+    ZenMoneySyncResponse,
+    ZenMoneyTransactionResponse,
+)
 
 __all__ = [
     "ApiError",
+    "BalanceCookResponse",
+    "BalancePaymentResponse",
+    "BalancePaymentTypeResponse",
     "BalancesQuery",
     "BalancesResponse",
     "CalculateSelectionRequest",
@@ -42,6 +60,7 @@ __all__ = [
     "CooksQuery",
     "CookSummaryResponse",
     "CreateCookRequest",
+    "CreateBalancePaymentRequest",
     "DraftCookPreviewRequest",
     "DraftCookPreviewResponse",
     "DraftMemberChargeResponse",
@@ -63,4 +82,13 @@ __all__ = [
     "UserResponse",
     "UsersQuery",
     "WeekBalanceResponse",
+    "DecideZenMoneyTransactionRequest",
+    "SaveZenMoneySettingsRequest",
+    "ZenMoneyAccountResponse",
+    "ZenMoneyAccountsRequest",
+    "ZenMoneyBulkApproveResponse",
+    "ZenMoneyPaymentTypeResponse",
+    "ZenMoneySettingsResponse",
+    "ZenMoneySyncResponse",
+    "ZenMoneyTransactionResponse",
 ]

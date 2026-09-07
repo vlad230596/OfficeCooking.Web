@@ -6,6 +6,7 @@ import { CatalogPage } from './pages/CatalogPage'
 import { NewCookPage } from './pages/NewCookPage'
 import { AccessPage } from './pages/AccessPage'
 import { LoginPage } from './pages/LoginPage'
+import { PaymentsPage } from './pages/PaymentsPage'
 import { AuthProvider, useAuth } from './auth'
 
 export function App() {
@@ -26,6 +27,7 @@ function AuthenticatedRoutes() {
         <Route path="cooks" element={<CooksPage />} />
         <Route path="catalog" element={hasRole('admin') ? <CatalogPage /> : <Navigate replace to="/cooks" />} />
         <Route path="access" element={hasRole('admin') ? <AccessPage /> : <Navigate replace to="/cooks" />} />
+        <Route path="payments" element={hasRole('editor') ? <PaymentsPage /> : <Navigate replace to="/cooks" />} />
         <Route path="*" element={<Navigate replace to="/cooks" />} />
       </Route>
     </Routes>

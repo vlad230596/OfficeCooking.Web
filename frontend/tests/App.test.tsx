@@ -21,6 +21,7 @@ vi.mock('../src/api', async (loadOriginal) => {
       dateFrom: '2023-06-05', dateTo: '2026-08-19', items: [],
       ordering: { fields: [{ field: 'userName', direction: 'asc' }] },
     }),
+    listZenMoneyTransactions: vi.fn().mockResolvedValue([]),
   }
 })
 
@@ -40,16 +41,17 @@ describe('application routes', () => {
     ['/cooks/new', 'Новая готовка'],
     ['/cooks', 'Готовки'],
     ['/catalog', 'Справочники'],
+    ['/payments', 'Входящие операции'],
   ])('renders %s route', async (path, heading) => {
     renderAt(path)
     expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeInTheDocument()
   })
 
-  it('exposes desktop and mobile navigation without a payments route', async () => {
+  it('exposes desktop and mobile navigation with a payments route', async () => {
     renderAt('/balances')
     expect(await screen.findByRole('navigation', { name: 'Основная навигация' })).toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: 'Мобильная навигация' })).toBeInTheDocument()
-    expect(screen.queryByText('Платежи')).not.toBeInTheDocument()
+    expect(screen.getAllByText('Платежи')).toHaveLength(2)
   })
 
   it('shows the login form without a valid session', async () => {

@@ -5,14 +5,18 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import date
-from uuid import UUID
+from datetime import date, timedelta
+from uuid import UUID, uuid4
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.contracts import (
+    BalanceCookResponse,
+    BalancePaymentResponse,
+    BalancePaymentTypeResponse,
     BalancesResponse,
+    CreateBalancePaymentRequest,
     OrderingMetadata,
     SortField,
     UserBalanceDetailResponse,
@@ -20,7 +24,16 @@ from app.api.contracts import (
     WeekBalanceResponse,
 )
 from app.domain.legacy_calculation import LegacyCalculationError, ceil_to_5, float32
-from app.models import Cook, CookMember, CookMemberVote, CookVoteVariant, Payment, User
+from app.models import (
+    Cook,
+    CookMember,
+    CookMemberVote,
+    CookVoteVariant,
+    Payment,
+    PaymentType,
+    User,
+    ZenMoneyTransaction,
+)
 
 
 class BalanceDataError(RuntimeError):
@@ -28,6 +41,14 @@ class BalanceDataError(RuntimeError):
 
 
 class UserNotFoundError(LookupError):
+    pass
+
+
+class PaymentNotFoundError(LookupError):
+    pass
+
+
+class PaymentTypeNotFoundError(LookupError):
     pass
 
 
@@ -49,6 +70,8 @@ class CookCharge:
     user_id: UUID
     cook_date: date
     amount: int
+    cook_id: UUID | None = None
+    title: str = ""
 
 
 @dataclass(slots=True)
@@ -79,6 +102,7 @@ class BalanceCookMember:
     position: int
     active: bool
     permanent_sale: float
+    type_snapshot: str
 
 
 def legacy_week(value: date) -> tuple[int, int]:
@@ -87,6 +111,14 @@ def legacy_week(value: date) -> tuple[int, int]:
     january_first = value.replace(month=1, day=1)
     week = ((value.timetuple().tm_yday - 1 + january_first.weekday()) // 7) + 1
     return value.year, week
+
+
+def legacy_week_display(year: int, week: int) -> str:
+    january_first = date(year, 1, 1)
+    raw_start = january_first + timedelta(days=7 * (week - 1) - january_first.weekday())
+    start = max(raw_start, january_first)
+    end = min(raw_start + timedelta(days=6), date(year, 12, 31))
+    return f"{start:%d.%m}–{end:%d.%m.%Y}"
 
 
 def aggregate_balances(
@@ -99,9 +131,7 @@ def aggregate_balances(
     """Aggregate inclusive-range events using the Legacy week identity."""
 
     known_users = {user.id for user in users}
-    weeks: dict[UUID, dict[tuple[int, int], _MutableWeek]] = {
-        user.id: {} for user in users
-    }
+    weeks: dict[UUID, dict[tuple[int, int], _MutableWeek]] = {user.id: {} for user in users}
 
     for payment in payments:
         if payment.user_id not in known_users or not date_from <= payment.payment_date <= date_to:
@@ -133,7 +163,7 @@ def aggregate_balances(
                 WeekBalanceResponse(
                     year=year,
                     week=week,
-                    display=f"{year}#{week}",
+                    display=legacy_week_display(year, week),
                     positive=value.positive,
                     negative=value.negative,
                     cooks_count=value.cooks_count,
@@ -190,7 +220,15 @@ def calculate_cook_charges(
             unit_price = float32(float32(total_price) / total_weight)
             for member, weight in effective:
                 amount = ceil_to_5(float32(unit_price * weight))
-                charges.append(CookCharge(member.user_id, member.cook_date, amount))
+                charges.append(
+                    CookCharge(
+                        member.user_id,
+                        member.cook_date,
+                        amount,
+                        member.cook_id,
+                        member.type_snapshot,
+                    )
+                )
     except LegacyCalculationError as exc:
         raise BalanceDataError(str(exc)) from exc
     return tuple(charges)
@@ -237,12 +275,35 @@ class BalanceService:
         item = next((value for value in aggregated if value.user.id == user_id), None)
         if item is None:
             raise UserNotFoundError(str(user_id))
+        payments, charges = await self._load_user_activity(user_id, date_from, date_to)
+        payment_types = (
+            await self._session.execute(
+                select(PaymentType).where(PaymentType.enabled.is_(True)).order_by(PaymentType.name)
+            )
+        ).scalars()
+        payments_by_week: dict[tuple[int, int], list[BalancePaymentResponse]] = defaultdict(list)
+        for payment in payments:
+            payments_by_week[legacy_week(payment.payment_date)].append(payment)
+        cooks_by_week: dict[tuple[int, int], list[BalanceCookResponse]] = defaultdict(list)
+        for charge in charges:
+            cooks_by_week[legacy_week(charge.cook_date)].append(charge)
         return UserBalanceDetailResponse(
             user_id=item.user.id,
             user_name=item.user.name,
             date_from=date_from,
             date_to=date_to,
-            weeks=list(item.weeks),
+            weeks=[
+                week.model_copy(
+                    update={
+                        "payments": payments_by_week[(week.year, week.week)],
+                        "cooks": cooks_by_week[(week.year, week.week)],
+                    }
+                )
+                for week in item.weeks
+            ],
+            payment_types=[
+                BalancePaymentTypeResponse(id=value.id, name=value.name) for value in payment_types
+            ],
             ordering=OrderingMetadata(
                 fields=[
                     SortField(field="year", direction="asc"),
@@ -251,9 +312,106 @@ class BalanceService:
             ),
         )
 
-    async def _load(
-        self, date_from: date, date_to: date
-    ) -> tuple[AggregatedUserBalance, ...]:
+    async def create_payment(self, user_id: UUID, request: CreateBalancePaymentRequest) -> None:
+        if await self._session.get(User, user_id) is None:
+            raise UserNotFoundError(str(user_id))
+        payment_type = await self._session.get(PaymentType, request.payment_type_id)
+        if payment_type is None or not payment_type.enabled:
+            raise PaymentTypeNotFoundError(str(request.payment_type_id))
+        payment_id = uuid4()
+        max_position = await self._session.scalar(select(func.max(Payment.legacy_position)))
+        self._session.add(
+            Payment(
+                id=payment_id,
+                legacy_position=(max_position if max_position is not None else -1) + 1,
+                user_id=user_id,
+                payment_type_id=payment_type.id,
+                payment_date=request.payment_date,
+                payment_date_raw=request.payment_date.strftime("%d.%m.%Y"),
+                registration_date_raw=None,
+                registration_date_parsed=None,
+                sum=request.amount,
+                comment=request.comment.strip(),
+                source_key=f"manual:{payment_id}",
+                included_in_balance=True,
+            )
+        )
+        await self._session.commit()
+
+    async def delete_payment(self, user_id: UUID, payment_id: UUID) -> None:
+        payment = await self._session.scalar(
+            select(Payment).where(Payment.id == payment_id, Payment.user_id == user_id)
+        )
+        if payment is None:
+            raise PaymentNotFoundError(str(payment_id))
+        transaction = await self._session.scalar(
+            select(ZenMoneyTransaction).where(ZenMoneyTransaction.payment_id == payment.id)
+        )
+        if transaction is not None:
+            transaction.payment_id = None
+            transaction.user_id = None
+            transaction.status = "rejected"
+            transaction.decision_source = "manual"
+            transaction.match_reason = "payment deleted manually"
+        await self._session.delete(payment)
+        await self._session.commit()
+
+    async def _load_user_activity(
+        self, user_id: UUID, date_from: date, date_to: date
+    ) -> tuple[list[BalancePaymentResponse], list[BalanceCookResponse]]:
+        payment_rows = await self._session.execute(
+            select(
+                Payment.id,
+                Payment.payment_date,
+                Payment.sum,
+                Payment.comment,
+                Payment.source_key,
+                PaymentType.name.label("payment_type_name"),
+                ZenMoneyTransaction.id.label("zenmoney_transaction_id"),
+            )
+            .join(PaymentType, PaymentType.id == Payment.payment_type_id)
+            .outerjoin(ZenMoneyTransaction, ZenMoneyTransaction.payment_id == Payment.id)
+            .where(
+                Payment.user_id == user_id,
+                Payment.included_in_balance.is_(True),
+                Payment.payment_date.between(date_from, date_to),
+            )
+            .order_by(Payment.payment_date, Payment.id)
+        )
+        payments = [
+            BalancePaymentResponse(
+                id=row.id,
+                payment_date=row.payment_date,
+                amount=row.sum,
+                payment_type_name=row.payment_type_name,
+                comment=row.comment,
+                source=(
+                    "ZenMoney"
+                    if row.zenmoney_transaction_id
+                    else "Вручную"
+                    if row.source_key.startswith("manual:")
+                    else "Старый импорт"
+                ),
+            )
+            for row in payment_rows
+        ]
+        member_rows = await self._session.execute(self._members_query(date_from, date_to))
+        members = tuple(BalanceCookMember(*row) for row in member_rows)
+        vote_rows = await self._session.execute(self._votes_query(date_from, date_to))
+        votes = tuple((row.member_id, row.position, row.value) for row in vote_rows)
+        charges = [
+            BalanceCookResponse(
+                id=charge.cook_id,
+                cook_date=charge.cook_date,
+                title=charge.title,
+                amount=charge.amount,
+            )
+            for charge in calculate_cook_charges(members, votes)
+            if charge.user_id == user_id and charge.cook_id is not None
+        ]
+        return payments, charges
+
+    async def _load(self, date_from: date, date_to: date) -> tuple[AggregatedUserBalance, ...]:
         users_result = await self._session.execute(
             select(User.id, User.name).order_by(User.name.asc(), User.id.asc())
         )
@@ -281,6 +439,7 @@ class BalanceService:
                 func.sum(Payment.sum).label("amount"),
             )
             .where(Payment.payment_date.between(date_from, date_to))
+            .where(Payment.included_in_balance.is_(True))
             .group_by(Payment.user_id, Payment.payment_date)
         )
 
@@ -297,6 +456,7 @@ class BalanceService:
                 CookMember.position,
                 CookMember.active,
                 CookMember.permanent_sale_snapshot,
+                Cook.type_snapshot,
             )
             .join(CookMember, CookMember.cook_id == Cook.id)
             .where(Cook.cook_date.between(date_from, date_to))
@@ -327,8 +487,11 @@ __all__ = [
     "BalanceUser",
     "CookCharge",
     "PaymentTotal",
+    "PaymentNotFoundError",
+    "PaymentTypeNotFoundError",
     "UserNotFoundError",
     "aggregate_balances",
     "calculate_cook_charges",
     "legacy_week",
+    "legacy_week_display",
 ]

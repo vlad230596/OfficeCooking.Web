@@ -8,6 +8,7 @@ import type {
   CookDetail,
   CookSummary,
   CreateCookRequest,
+  CreateBalancePaymentRequest,
   DraftCookPreviewRequest,
   DraftCookPreviewResponse,
   EnabledFilter,
@@ -24,6 +25,13 @@ import type {
   User,
   UserBalanceDetail,
   UUID,
+  SaveZenMoneySettingsRequest,
+  ZenMoneyAccount,
+  ZenMoneyBulkApproveResult,
+  ZenMoneySettings,
+  ZenMoneyStatus,
+  ZenMoneySyncResult,
+  ZenMoneyTransaction,
 } from './contracts'
 
 type WithSignal = { signal?: AbortSignal }
@@ -121,6 +129,52 @@ export function listBalances({ dateFrom, dateTo, nonZeroOnly = false, signal }: 
 
 export function getUserBalance(userId: UUID, { dateFrom, dateTo, signal }: BalanceRangeOptions): Promise<UserBalanceDetail> {
   return apiRequest(withSearchParams(`balances/users/${encodeURIComponent(userId)}`, { dateFrom, dateTo }), { signal })
+}
+
+export function deleteUserPayment(userId: UUID, paymentId: UUID): Promise<void> {
+  return apiRequest(`balances/users/${encodeURIComponent(userId)}/payments/${encodeURIComponent(paymentId)}/delete`, { method: 'POST', body: {} })
+}
+
+export function createUserPayment(userId: UUID, request: CreateBalancePaymentRequest): Promise<void> {
+  return apiRequest(`balances/users/${encodeURIComponent(userId)}/payments`, { method: 'POST', body: request })
+}
+
+export function getZenMoneySettings({ signal }: WithSignal = {}): Promise<ZenMoneySettings> {
+  return apiRequest('zenmoney/settings', { signal })
+}
+
+export function listZenMoneyAccounts(accessToken?: string): Promise<ZenMoneyAccount[]> {
+  return apiRequest('zenmoney/settings/accounts', {
+    method: 'POST', body: accessToken ? { accessToken } : {},
+  })
+}
+
+export function saveZenMoneySettings(request: SaveZenMoneySettingsRequest): Promise<ZenMoneySettings> {
+  return apiRequest('zenmoney/settings', { method: 'PUT', body: request })
+}
+
+export function syncZenMoney(): Promise<ZenMoneySyncResult> {
+  return apiRequest('zenmoney/sync', { method: 'POST', body: {} })
+}
+
+export function approveAllMatchedZenMoneyTransactions(): Promise<ZenMoneyBulkApproveResult> {
+  return apiRequest('zenmoney/transactions/approve-matched', { method: 'POST', body: {} })
+}
+
+export function listZenMoneyTransactions(
+  { includeBlacklisted = false, status, signal }: WithSignal & { includeBlacklisted?: boolean; status?: ZenMoneyStatus } = {},
+): Promise<ZenMoneyTransaction[]> {
+  return apiRequest(withSearchParams('zenmoney/transactions', { includeBlacklisted, status }), { signal })
+}
+
+export function decideZenMoneyTransaction(
+  transactionId: UUID,
+  action: 'assign' | 'approve' | 'reject' | 'retry',
+  userId?: UUID,
+): Promise<ZenMoneyTransaction> {
+  return apiRequest(`zenmoney/transactions/${encodeURIComponent(transactionId)}`, {
+    method: 'PATCH', body: { action, ...(userId ? { userId } : {}) },
+  })
 }
 
 function withSearchParams(path: string, values: Record<string, string | number | boolean | undefined>): string {

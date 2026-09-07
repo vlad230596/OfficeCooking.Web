@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Path, Query, Request, status
+from fastapi import APIRouter, Depends, Path, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,11 +14,18 @@ from app.api.contracts import (
     ApiError,
     BalancesQuery,
     BalancesResponse,
+    CreateBalancePaymentRequest,
     DateRangeQuery,
     ErrorEnvelope,
     UserBalanceDetailResponse,
 )
-from app.services.balances import BalanceDataError, BalanceService, UserNotFoundError
+from app.services.balances import (
+    BalanceDataError,
+    BalanceService,
+    PaymentNotFoundError,
+    PaymentTypeNotFoundError,
+    UserNotFoundError,
+)
 
 router = APIRouter(prefix="/api/v1/balances", tags=["balances"])
 
@@ -106,6 +113,65 @@ async def get_user_balance(
             "balance_calculation_failed",
             "Stored data cannot produce balances.",
             reason=str(exc),
+        )
+
+
+@router.post(
+    "/users/{userId}/payments",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    responses={404: {"model": ErrorEnvelope}},
+)
+async def create_user_payment(
+    request: Request,
+    user_id: Annotated[UUID, Path(alias="userId")],
+    body: CreateBalancePaymentRequest,
+    service: Annotated[BalanceService, Depends(get_balance_service)],
+) -> Response | JSONResponse:
+    try:
+        await service.create_payment(user_id, body)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except UserNotFoundError:
+        return _error_response(
+            request,
+            status.HTTP_404_NOT_FOUND,
+            "user_not_found",
+            "User was not found.",
+            userId=str(user_id),
+        )
+    except PaymentTypeNotFoundError:
+        return _error_response(
+            request,
+            status.HTTP_404_NOT_FOUND,
+            "payment_type_not_found",
+            "Payment type was not found.",
+            paymentTypeId=str(body.payment_type_id),
+        )
+
+
+@router.post(
+    "/users/{userId}/payments/{paymentId}/delete",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    responses={404: {"model": ErrorEnvelope}},
+)
+async def delete_user_payment(
+    request: Request,
+    user_id: Annotated[UUID, Path(alias="userId")],
+    payment_id: Annotated[UUID, Path(alias="paymentId")],
+    service: Annotated[BalanceService, Depends(get_balance_service)],
+) -> Response | JSONResponse:
+    try:
+        await service.delete_payment(user_id, payment_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except PaymentNotFoundError:
+        return _error_response(
+            request,
+            status.HTTP_404_NOT_FOUND,
+            "payment_not_found",
+            "Payment was not found.",
+            userId=str(user_id),
+            paymentId=str(payment_id),
         )
 
 

@@ -14,6 +14,10 @@ from .entities import (
     TemplateVoteVariant,
     User,
     UserContact,
+    ZenMoneyBlacklistEntry,
+    ZenMoneyMatchRule,
+    ZenMoneySettings,
+    ZenMoneyTransaction,
 )
 
 __all__ = [
@@ -32,4 +36,8 @@ __all__ = [
     "TemplateVoteVariant",
     "User",
     "UserContact",
+    "ZenMoneyBlacklistEntry",
+    "ZenMoneyMatchRule",
+    "ZenMoneySettings",
+    "ZenMoneyTransaction",
 ]

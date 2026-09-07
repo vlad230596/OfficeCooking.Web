@@ -100,10 +100,22 @@ Compose network. Снаружи запросы проходят через Caddy
 POSTGRES_DB=officecook
 POSTGRES_USER=officecook
 POSTGRES_PASSWORD=<secret>
+OFFICE_COOK_ZENMONEY_ENCRYPTION_KEY=<fernet-key>
+OFFICE_COOK_ZENMONEY_SYNC_INTERVAL_MINUTES=15
 APP_DOMAIN=office-cooking.duckdns.org
 APP_ORIGIN=https://office-cooking.duckdns.org:8443
 APP_HTTPS_PORT=8443
 ```
+
+Ключ шифрования ZenMoney генерируется один раз:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Ключ хранится только в `/opt/officecooking/.env`, отдельно от резервной копии БД. При
+утрате или ротации ключа сохранённый токен расшифровать нельзя — администратор должен
+ввести токен ZenMoney заново.
 
 Правила:
 

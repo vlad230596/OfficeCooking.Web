@@ -3,6 +3,7 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     REAL,
+    BigInteger,
     Boolean,
     CheckConstraint,
     Date,
@@ -126,6 +127,87 @@ class Payment(Base):
     sum: Mapped[int] = mapped_column(Integer, nullable=False)
     comment: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
     source_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    included_in_balance: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+
+
+class ZenMoneySettings(Base):
+    __tablename__ = "zenmoney_settings"
+    __table_args__ = (CheckConstraint("id = 1", name="singleton"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    access_token_ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    account_id: Mapped[str] = mapped_column(Text, nullable=False)
+    account_title: Mapped[str] = mapped_column(Text, nullable=False)
+    payment_type_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("payment_types.id", ondelete="RESTRICT"), nullable=False
+    )
+    server_timestamp: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=text("0")
+    )
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ZenMoneyBlacklistEntry(Base):
+    __tablename__ = "zenmoney_blacklist_entries"
+    __table_args__ = (
+        Index("uq_zenmoney_blacklist_pattern_lower", text("lower(pattern)"), unique=True),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    pattern: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class ZenMoneyMatchRule(Base):
+    __tablename__ = "zenmoney_match_rules"
+    __table_args__ = (
+        CheckConstraint("kind IN ('phone', 'name')", name="kind_allowed"),
+        UniqueConstraint("kind", "pattern"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    pattern: Mapped[str] = mapped_column(Text, nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+
+
+class ZenMoneyTransaction(Base):
+    __tablename__ = "zenmoney_transactions"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('matched', 'review', 'blacklisted', 'rejected')",
+            name="status_allowed",
+        ),
+        CheckConstraint(
+            "decision_source IN ('automatic', 'manual')", name="decision_source_allowed"
+        ),
+        Index("ix_zenmoney_transactions_date", text("transaction_date DESC")),
+        Index("ix_zenmoney_transactions_status", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    zenmoney_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    account_id: Mapped[str] = mapped_column(Text, nullable=False)
+    changed: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    transaction_date: Mapped[date] = mapped_column(Date, nullable=False)
+    amount: Mapped[float] = mapped_column(REAL, nullable=False)
+    payee: Mapped[str | None] = mapped_column(Text)
+    original_payee: Mapped[str | None] = mapped_column(Text)
+    comment: Mapped[str | None] = mapped_column(Text)
+    hold: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    decision_source: Mapped[str] = mapped_column(Text, nullable=False)
+    match_reason: Mapped[str | None] = mapped_column(Text)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    payment_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("payments.id", ondelete="SET NULL"), unique=True
+    )
 
 
 class CookTemplate(TimestampMixin, Base):

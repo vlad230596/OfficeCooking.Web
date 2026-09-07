@@ -1,4 +1,6 @@
-from contextlib import asynccontextmanager
+import asyncio
+import logging
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,11 +11,29 @@ from app.api.routes.auth import router as auth_router
 from app.api.routes.balances import router as balances_router
 from app.api.routes.catalog import router as catalog_router
 from app.api.routes.cooks import router as cooks_router
+from app.api.routes.zenmoney import router as zenmoney_router
 from app.auth_middleware import AuthenticationMiddleware
 from app.config import Settings, get_settings
 from app.database import create_engine, create_session_factory
 from app.request_context import RequestIdMiddleware
 from app.security import JsonMutationMiddleware
+from app.services.zenmoney import ZenMoneyError
+from app.services.zenmoney import sync as sync_zenmoney
+
+logger = logging.getLogger(__name__)
+
+
+async def _run_zenmoney_sync(app: FastAPI, interval_minutes: int) -> None:
+    while True:
+        await asyncio.sleep(interval_minutes * 60)
+        try:
+            async with app.state.session_factory() as session:
+                await sync_zenmoney(session, app.state.settings)
+        except ZenMoneyError as error:
+            if error.code != "not_configured":
+                logger.warning("Scheduled ZenMoney sync failed: %s", error.code)
+        except Exception:
+            logger.exception("Scheduled ZenMoney sync failed unexpectedly")
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -24,7 +44,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         app.state.engine = engine
         app.state.session_factory = create_session_factory(engine)
+        sync_task = None
+        encryption_key = resolved_settings.zenmoney_encryption_key
+        if encryption_key is not None and encryption_key.get_secret_value():
+            sync_task = asyncio.create_task(
+                _run_zenmoney_sync(app, resolved_settings.zenmoney_sync_interval_minutes)
+            )
         yield
+        if sync_task is not None:
+            sync_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await sync_task
         await engine.dispose()
 
     app = FastAPI(
@@ -52,6 +82,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(catalog_router)
     app.include_router(cooks_router)
     app.include_router(balances_router)
+    app.include_router(zenmoney_router)
     return app
 
 

@@ -19,6 +19,7 @@ from app.services.balances import (
     BalanceService,
     UserNotFoundError,
     legacy_week,
+    legacy_week_display,
 )
 
 
@@ -39,6 +40,11 @@ def test_legacy_week_matches_gregorian_first_day_monday(
     value: date, expected: tuple[int, int]
 ) -> None:
     assert legacy_week(value) == expected
+
+
+def test_legacy_week_display_handles_partial_year_boundary_week() -> None:
+    assert legacy_week_display(2023, 1) == "01.01–01.01.2023"
+    assert legacy_week_display(2023, 2) == "02.01–08.01.2023"
 
 
 def test_balance_query_uses_member_discount_snapshot_not_current_user_value() -> None:
@@ -78,15 +84,19 @@ class FakeBalanceService:
             date_from=date_from,
             date_to=date_to,
             items=items,
-            ordering=OrderingMetadata(
-                fields=[SortField(field="userName", direction="asc")]
-            ),
+            ordering=OrderingMetadata(fields=[SortField(field="userName", direction="asc")]),
         )
 
     async def get_user_balance(
         self, user_id: UUID, date_from: date, date_to: date
     ) -> UserBalanceDetailResponse:
         raise UserNotFoundError(str(user_id))
+
+    async def create_payment(self, user_id: UUID, request: object) -> None:
+        return None
+
+    async def delete_payment(self, user_id: UUID, payment_id: UUID) -> None:
+        return None
 
 
 @pytest.fixture
@@ -131,3 +141,24 @@ def test_router_rejects_reversed_range(client: TestClient) -> None:
         params={"dateFrom": "2023-06-06", "dateTo": "2023-06-05"},
     )
     assert response.status_code == 422
+
+
+def test_router_creates_manual_payment_with_post_action(client: TestClient) -> None:
+    response = client.post(
+        f"/api/v1/balances/users/{_id(1)}/payments",
+        json={
+            "paymentDate": "2026-09-07",
+            "amount": 500,
+            "paymentTypeId": str(_id(2)),
+            "comment": "manual test",
+        },
+    )
+    assert response.status_code == 204
+
+
+def test_router_deletes_payment_with_post_action(client: TestClient) -> None:
+    response = client.post(
+        f"/api/v1/balances/users/{_id(1)}/payments/{_id(2)}/delete",
+        json={},
+    )
+    assert response.status_code == 204

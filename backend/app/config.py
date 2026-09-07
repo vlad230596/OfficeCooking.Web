@@ -23,9 +23,7 @@ class Settings(BaseSettings):
     database_name: str = "officecook"
     database_user: str = "officecook"
     database_password: SecretStr = SecretStr("officecook")
-    allowed_hosts: list[str] = Field(
-        default_factory=lambda: ["localhost", "127.0.0.1"]
-    )
+    allowed_hosts: list[str] = Field(default_factory=lambda: ["localhost", "127.0.0.1"])
     cors_origins: list[str] = Field(
         default_factory=lambda: [
             "http://localhost:5173",
@@ -35,6 +33,8 @@ class Settings(BaseSettings):
     sql_echo: bool = False
     session_cookie_secure: bool = False
     session_ttl_hours: int = Field(default=12, ge=1, le=24)
+    zenmoney_encryption_key: SecretStr | None = None
+    zenmoney_sync_interval_minutes: int = Field(default=15, ge=1, le=1440)
 
     @field_validator("allowed_hosts", "cors_origins")
     @classmethod
@@ -45,12 +45,12 @@ class Settings(BaseSettings):
 
     @field_validator("database_url")
     @classmethod
-    def require_async_postgresql(cls, value: str | None) -> str | None:
+    def require_async_database(cls, value: str | None) -> str | None:
         if value is None:
             return None
         parsed = make_url(value)
-        if parsed.drivername != "postgresql+asyncpg":
-            raise ValueError("database_url must use postgresql+asyncpg")
+        if parsed.drivername not in {"postgresql+asyncpg", "sqlite+aiosqlite"}:
+            raise ValueError("database_url must use postgresql+asyncpg or sqlite+aiosqlite")
         return value
 
     def build_database_url(self) -> URL:
@@ -70,6 +70,9 @@ class Settings(BaseSettings):
     def require_secure_production_cookies(self) -> "Settings":
         if self.environment.lower() == "production" and not self.session_cookie_secure:
             raise ValueError("production requires secure session cookies")
+        if self.environment.lower() == "production" and self.database_url is not None:
+            if make_url(self.database_url).drivername != "postgresql+asyncpg":
+                raise ValueError("production requires postgresql+asyncpg")
         return self
 
 

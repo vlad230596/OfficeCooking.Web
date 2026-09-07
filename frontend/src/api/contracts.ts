@@ -253,6 +253,24 @@ export type WeekBalance = {
   cooksCount: number
   weeklyDelta: number
   cumulativeBalance: number
+  payments: BalancePayment[]
+  cooks: BalanceCook[]
+}
+
+export type BalancePayment = {
+  id: UUID
+  paymentDate: IsoDate
+  amount: number
+  paymentTypeName: string
+  comment: string
+  source: string
+}
+
+export type BalanceCook = {
+  id: UUID
+  cookDate: IsoDate
+  title: string
+  amount: number
 }
 
 export type UserBalanceDetail = {
@@ -261,5 +279,67 @@ export type UserBalanceDetail = {
   dateFrom: IsoDate
   dateTo: IsoDate
   weeks: WeekBalance[]
+  paymentTypes: Array<{ id: UUID; name: string }>
   ordering: OrderingMetadata
+}
+
+export type CreateBalancePaymentRequest = {
+  paymentDate: IsoDate
+  amount: number
+  paymentTypeId: UUID
+  comment: string
+}
+
+export type ZenMoneyStatus = 'matched' | 'review' | 'blacklisted' | 'rejected'
+export type ZenMoneyAccount = {
+  id: string
+  title: string
+  companyTitle: string | null
+  syncIds: string[]
+  archived: boolean
+}
+export type ZenMoneyPaymentType = { id: UUID; name: string }
+export type ZenMoneySettings = {
+  configured: boolean
+  tokenConfigured: boolean
+  accountId: string | null
+  accountTitle: string | null
+  paymentTypeId: UUID | null
+  serverTimestamp: number
+  lastSyncAt: string | null
+  blacklist: string[]
+  paymentTypes: ZenMoneyPaymentType[]
+}
+export type SaveZenMoneySettingsRequest = {
+  accessToken?: string
+  accountId: string
+  accountTitle: string
+  paymentTypeId: UUID
+  blacklist: string[]
+}
+export type ZenMoneySyncResult = {
+  received: number
+  created: number
+  updated: number
+  matched: number
+  review: number
+  blacklisted: number
+  serverTimestamp: number
+}
+export type ZenMoneyBulkApproveResult = { approved: number; skipped: number }
+export type ZenMoneyTransaction = {
+  id: UUID
+  transactionDate: IsoDate
+  amount: number
+  payee: string | null
+  originalPayee: string | null
+  comment: string | null
+  hold: boolean
+  deleted: boolean
+  status: ZenMoneyStatus
+  decisionSource: 'automatic' | 'manual'
+  matchReason: string | null
+  userId: UUID | null
+  userName: string | null
+  paymentId: UUID | null
 }

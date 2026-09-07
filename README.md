@@ -10,3 +10,10 @@ frontend — на React.
 - [Публикация на VDS](DEPLOYMENT.md)
 - [Backend и локальная разработка](backend/README.md)
 - [Frontend](frontend/README.md)
+
+## Импорт платежей из ZenMoney
+
+Редакторы видят входящие операции выбранного счёта в разделе «Платежи», а администратор
+настраивает access token, счёт, тип платежа и blacklist. Токен хранится в базе только
+в зашифрованном виде; ключ задаётся серверной переменной
+`OFFICE_COOK_ZENMONEY_ENCRYPTION_KEY` и никогда не сохраняется в базе.

@@ -5,6 +5,10 @@ from sqlalchemy.schema import CreateTable
 from app.models import Base
 
 EXPECTED_TABLES = {
+    "zenmoney_settings",
+    "zenmoney_blacklist_entries",
+    "zenmoney_match_rules",
+    "zenmoney_transactions",
     "auth_sessions",
     "import_runs",
     "users",

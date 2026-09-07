@@ -39,6 +39,34 @@ class BalancesResponse(ApiModel):
     ordering: OrderingMetadata
 
 
+class BalancePaymentResponse(ApiModel):
+    id: UUID
+    payment_date: IsoDate
+    amount: int
+    payment_type_name: str
+    comment: str
+    source: str
+
+
+class BalancePaymentTypeResponse(ApiModel):
+    id: UUID
+    name: str
+
+
+class CreateBalancePaymentRequest(ApiModel):
+    payment_date: IsoDate
+    amount: int = Field(gt=0)
+    payment_type_id: UUID
+    comment: str = Field(default="", max_length=1000)
+
+
+class BalanceCookResponse(ApiModel):
+    id: UUID
+    cook_date: IsoDate
+    title: str
+    amount: int = Field(ge=0)
+
+
 class WeekBalanceResponse(ApiModel):
     year: int = Field(ge=1)
     week: int = Field(ge=1, le=54)
@@ -48,6 +76,8 @@ class WeekBalanceResponse(ApiModel):
     cooks_count: int = Field(ge=0)
     weekly_delta: int
     cumulative_balance: int
+    payments: list[BalancePaymentResponse] = Field(default_factory=list)
+    cooks: list[BalanceCookResponse] = Field(default_factory=list)
 
 
 class UserBalanceDetailResponse(ApiModel):
@@ -56,4 +86,5 @@ class UserBalanceDetailResponse(ApiModel):
     date_from: IsoDate
     date_to: IsoDate
     weeks: list[WeekBalanceResponse]
+    payment_types: list[BalancePaymentTypeResponse] = Field(default_factory=list)
     ordering: OrderingMetadata

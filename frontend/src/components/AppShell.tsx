@@ -11,6 +11,7 @@ type NavigationItem = {
 }
 
 const navigation: NavigationItem[] = [
+  { to: '/payments', label: 'Платежи', shortLabel: 'Платежи', icon: <PaymentIcon /> },
   { to: '/balances', label: 'Балансы', shortLabel: 'Балансы', icon: <BalanceIcon /> },
   { to: '/cooks/new', label: 'Новая готовка', shortLabel: 'Новая', icon: <AddIcon /> },
   { to: '/cooks', label: 'Готовки', shortLabel: 'Готовки', icon: <ListIcon /> },
@@ -34,7 +35,7 @@ export function AppShell() {
   const { user, hasRole, logout } = useAuth()
   const visibleNavigation = navigation.filter(item => {
     if (item.to === '/catalog') return hasRole('admin')
-    if (item.to === '/cooks/new') return hasRole('editor')
+    if (item.to === '/cooks/new' || item.to === '/payments') return hasRole('editor')
     return true
   })
   return (
@@ -76,4 +77,8 @@ function ListIcon() {
 
 function CatalogIcon() {
   return <svg viewBox="0 0 24 24"><path d="M5 5h5v5H5zM14 5h5v5h-5zM5 14h5v5H5zM14 14h5v5h-5z" /></svg>
+}
+
+function PaymentIcon() {
+  return <svg viewBox="0 0 24 24"><path d="M4 7h16v10H4zM4 10h16M16 14h2" /></svg>
 }

@@ -19,10 +19,12 @@
 .payment-card__date, .payment-card small { color: var(--muted); font-size: 12px; }
 .payment-card h2 { margin: 5px 0 2px; font-size: 15px; }
 .payment-card p { margin: 2px 0 6px; color: var(--muted); font-size: 13px; }
-.payment-card__actions { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; align-content: center; gap: 7px; }
+.payment-card__actions { display: grid; grid-template-columns: repeat(2, minmax(140px, 1fr)); align-content: center; gap: 7px; width: 320px; }
+.payment-card__actions select { grid-column: 1 / -1; width: 100%; }
+.payment-card__actions .button { width: 100%; min-height: 38px; padding: 7px 10px; }
 .payment-reject { background: #a94337; }
 .payment-approve { background: #39845d; }
-.payment-retry { grid-column: 1 / -1; border: 0; color: var(--accent-dark); background: transparent; cursor: pointer; font-size: 12px; }
+.payment-retry { grid-column: 1 / -1; }
 .zen-settings { display: grid; gap: 12px; margin: 12px 0; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
 .zen-settings h2, .zen-settings p { margin: 0; }
 .zen-settings > p { color: var(--muted); font-size: 13px; }
@@ -40,9 +42,15 @@
 }
 /* Multi-account ZenMoney settings. */
 .zen-account-list { display: grid; gap: .65rem; grid-column: 1 / -1; }
-.zen-account-row { display: grid; grid-template-columns: minmax(16rem, 1fr) minmax(12rem, .6fr); gap: .75rem; align-items: center; }
+.zen-account-row { display: grid; gap: .65rem; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.zen-account-row.is-selected { background: #faf8f2; }
+.zen-settings .zen-account-choice { display: flex; align-items: center; gap: 10px; color: var(--ink); }
+.zen-account-choice input { flex: 0 0 auto; width: 18px; height: 18px; margin: 0; }
+.zen-account-config { display: grid; grid-template-columns: minmax(12rem, .55fr) minmax(18rem, 1fr); gap: 12px; padding-left: 28px; }
+.zen-account-config textarea { width: 100%; }
 .payment-card__account { display: inline-block; margin-top: .25rem; color: var(--color-text-muted, #746f66); }
 
 @media (max-width: 700px) {
-  .zen-account-row { grid-template-columns: 1fr; }
+  .zen-account-config { grid-template-columns: 1fr; padding-left: 0; }
+  .payment-card__actions { width: auto; }
 }

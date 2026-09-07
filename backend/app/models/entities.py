@@ -166,10 +166,20 @@ class ZenMoneyAccountConfig(Base):
 class ZenMoneyBlacklistEntry(Base):
     __tablename__ = "zenmoney_blacklist_entries"
     __table_args__ = (
-        Index("uq_zenmoney_blacklist_pattern_lower", text("lower(pattern)"), unique=True),
+        Index(
+            "uq_zenmoney_blacklist_account_pattern_lower",
+            "account_id",
+            text("lower(pattern)"),
+            unique=True,
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    account_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("zenmoney_account_configs.account_id", ondelete="CASCADE"),
+        nullable=False,
+    )
     pattern: Mapped[str] = mapped_column(Text, nullable=False)
 
 

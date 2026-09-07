@@ -68,6 +68,23 @@ class CloseBalanceAdjustmentRequest(ApiModel):
     reason: str = Field(min_length=1, max_length=1000)
 
 
+class CreateBalanceAdjustmentRequest(ApiModel):
+    balance_date_from: IsoDate
+    balance_date_to: IsoDate
+    adjustment_date: IsoDate
+    expected_balance: int
+    amount: int
+    reason: str = Field(min_length=1, max_length=1000)
+
+    @model_validator(mode="after")
+    def validate_adjustment(self) -> CreateBalanceAdjustmentRequest:
+        if not self.balance_date_from <= self.adjustment_date <= self.balance_date_to:
+            raise ValueError("adjustmentDate must be inside the balance date range")
+        if self.amount == 0:
+            raise ValueError("amount must not be zero")
+        return self
+
+
 class BalanceAdjustmentResponse(ApiModel):
     id: UUID
     adjustment_date: IsoDate

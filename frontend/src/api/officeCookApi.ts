@@ -148,6 +148,10 @@ export function closeUserBalance(userId: UUID, request: { adjustmentDate: IsoDat
   return apiRequest(`balances/users/${encodeURIComponent(userId)}/adjustments/close`, { method: 'POST', body: request })
 }
 
+export function createUserAdjustment(userId: UUID, request: { balanceDateFrom: IsoDate; balanceDateTo: IsoDate; adjustmentDate: IsoDate; expectedBalance: number; amount: number; reason: string }): Promise<void> {
+  return apiRequest(`balances/users/${encodeURIComponent(userId)}/adjustments`, { method: 'POST', body: request })
+}
+
 export function getZenMoneySettings({ signal }: WithSignal = {}): Promise<ZenMoneySettings> {
   return apiRequest('zenmoney/settings', { signal })
 }
@@ -178,7 +182,7 @@ export function listZenMoneyTransactions(
 
 export function decideZenMoneyTransaction(
   transactionId: UUID,
-  action: 'assign' | 'approve' | 'reject' | 'retry',
+  action: 'assign' | 'approve' | 'reject' | 'retry' | 'blacklist',
   userId?: UUID,
 ): Promise<ZenMoneyTransaction> {
   return apiRequest(`zenmoney/transactions/${encodeURIComponent(transactionId)}`, {

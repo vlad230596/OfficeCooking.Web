@@ -19,6 +19,7 @@ from app.api.contracts import (
     BalancesResponse,
     CloseBalanceAdjustmentRequest,
     CloseBalancePreviewResponse,
+    CreateBalanceAdjustmentRequest,
     CreateBalancePaymentRequest,
     OrderingMetadata,
     SortField,
@@ -425,6 +426,41 @@ class BalanceService:
             adjustment_date=request.adjustment_date,
             amount=-balance,
             balance_before=balance,
+            reason=request.reason.strip(),
+            created_at=datetime.now(UTC),
+            created_by_user_id=created_by_user_id,
+        )
+        self._session.add(value)
+        await self._session.commit()
+        return BalanceAdjustmentResponse(
+            id=value.id,
+            adjustment_date=value.adjustment_date,
+            amount=value.amount,
+            balance_before=value.balance_before,
+            reason=value.reason,
+            created_at=value.created_at,
+            created_by_name=author.name if author else None,
+        )
+
+    async def create_adjustment(
+        self,
+        user_id: UUID,
+        request: CreateBalanceAdjustmentRequest,
+        created_by_user_id: UUID | None,
+    ) -> BalanceAdjustmentResponse:
+        values = await self._load(request.balance_date_from, request.balance_date_to)
+        item = next((value for value in values if value.user.id == user_id), None)
+        if item is None:
+            raise UserNotFoundError(str(user_id))
+        if item.cumulative_balance != request.expected_balance:
+            raise BalanceChangedError("balance changed while the adjustment was being confirmed")
+        author = await self._session.get(User, created_by_user_id) if created_by_user_id else None
+        value = BalanceAdjustment(
+            id=uuid4(),
+            user_id=user_id,
+            adjustment_date=request.adjustment_date,
+            amount=request.amount,
+            balance_before=item.cumulative_balance,
             reason=request.reason.strip(),
             created_at=datetime.now(UTC),
             created_by_user_id=created_by_user_id,

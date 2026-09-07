@@ -173,11 +173,20 @@ async def get_settings_response(session: AsyncSession) -> ZenMoneySettingsRespon
             select(PaymentType).where(PaymentType.enabled.is_(True)).order_by(PaymentType.name)
         )
     ).scalars()
-    blacklist = (
-        await session.execute(
-            select(ZenMoneyBlacklistEntry.pattern).order_by(ZenMoneyBlacklistEntry.pattern)
+    blacklist_rows = (
+        (
+            await session.execute(
+                select(ZenMoneyBlacklistEntry).order_by(
+                    ZenMoneyBlacklistEntry.account_id, ZenMoneyBlacklistEntry.pattern
+                )
+            )
         )
-    ).scalars()
+        .scalars()
+        .all()
+    )
+    blacklist_by_account: dict[str, list[str]] = {}
+    for entry in blacklist_rows:
+        blacklist_by_account.setdefault(entry.account_id, []).append(entry.pattern)
     return ZenMoneySettingsResponse(
         configured=configured is not None and bool(accounts),
         token_configured=configured is not None,
@@ -193,10 +202,10 @@ async def get_settings_response(session: AsyncSession) -> ZenMoneySettingsRespon
                 payment_type_id=item.payment_type_id,
                 server_timestamp=item.server_timestamp,
                 last_sync_at=item.last_sync_at,
+                blacklist=blacklist_by_account.get(item.account_id, []),
             )
             for item in accounts
         ],
-        blacklist=list(blacklist),
         payment_types=[
             ZenMoneyPaymentTypeResponse(id=item.id, name=item.name) for item in payment_types
         ],
@@ -283,7 +292,11 @@ async def _save_multi_account_settings(
 
     await session.execute(delete(ZenMoneyBlacklistEntry))
     session.add_all(
-        [ZenMoneyBlacklistEntry(id=uuid.uuid4(), pattern=value) for value in request.blacklist]
+        [
+            ZenMoneyBlacklistEntry(id=uuid.uuid4(), account_id=account.account_id, pattern=pattern)
+            for account in request.accounts
+            for pattern in account.blacklist
+        ]
     )
     await session.flush()
     users = await _users_with_contacts(session)
@@ -298,7 +311,16 @@ async def _save_multi_account_settings(
     ).scalars()
     for transaction in transactions:
         if transaction.decision_source == "automatic":
-            match = match_sender(_sender_text(transaction), users, request.blacklist, learned_rules)
+            match = match_sender(
+                _sender_text(transaction),
+                users,
+                next(
+                    item.blacklist
+                    for item in request.accounts
+                    if item.account_id == transaction.account_id
+                ),
+                learned_rules,
+            )
             transaction.status = "review" if transaction.hold else match.status
             transaction.user_id = None if transaction.hold else match.user_id
             transaction.match_reason = (
@@ -358,6 +380,8 @@ def match_sender(
     normalized = normalize_text(haystack)
     phone = normalize_phone(haystack)
     for pattern in blacklist:
+        if pattern.casefold() == "операции без отправителя" and not normalized:
+            return MatchResult("blacklisted", None, "blacklist: empty sender")
         pattern_text = normalize_text(pattern)
         pattern_phone = normalize_phone(pattern)
         if (pattern_text and pattern_text in normalized) or (
@@ -428,6 +452,18 @@ async def _learned_rules(session: AsyncSession) -> list[LearnedRule]:
     return [LearnedRule(rule.kind, rule.pattern, rule.user_id) for rule in rules]
 
 
+async def _blacklist_patterns(session: AsyncSession, account_id: str) -> list[str]:
+    return list(
+        (
+            await session.execute(
+                select(ZenMoneyBlacklistEntry.pattern).where(
+                    ZenMoneyBlacklistEntry.account_id == account_id
+                )
+            )
+        ).scalars()
+    )
+
+
 def _sender_text(transaction: ZenMoneyTransaction) -> str:
     return " ".join(
         value
@@ -461,7 +497,7 @@ async def _remember_match(
 
 async def _rematch_pending(session: AsyncSession, account_id: str) -> None:
     users = await _users_with_contacts(session)
-    blacklist = list((await session.execute(select(ZenMoneyBlacklistEntry.pattern))).scalars())
+    blacklist = await _blacklist_patterns(session, account_id)
     learned_rules = await _learned_rules(session)
     transactions = (
         await session.execute(
@@ -585,7 +621,7 @@ async def _sync_account(
 ) -> ZenMoneySyncResponse:
     diff = await request_diff(token, configured.server_timestamp)
     users = await _users_with_contacts(session)
-    blacklist = list((await session.execute(select(ZenMoneyBlacklistEntry.pattern))).scalars())
+    blacklist = await _blacklist_patterns(session, configured.account_id)
     learned_rules = await _learned_rules(session)
     counts = {"created": 0, "updated": 0, "matched": 0, "review": 0, "blacklisted": 0}
     transactions = [item for item in diff.get("transaction", []) if isinstance(item, dict)]
@@ -845,6 +881,33 @@ async def decide(
         transaction.decision_source = "manual"
         transaction.match_reason = "manually rejected"
         await _deactivate_payment(session, transaction)
+    elif action == "blacklist":
+        pattern = next(
+            (
+                value.strip()
+                for value in (
+                    transaction.original_payee,
+                    transaction.payee,
+                    transaction.comment,
+                )
+                if value and value.strip()
+            ),
+            "Операции без отправителя",
+        )
+        existing_patterns = await _blacklist_patterns(session, configured.account_id)
+        if pattern.casefold() not in {value.casefold() for value in existing_patterns}:
+            session.add(
+                ZenMoneyBlacklistEntry(
+                    id=uuid.uuid4(), account_id=configured.account_id, pattern=pattern
+                )
+            )
+            await session.flush()
+        transaction.status = "blacklisted"
+        transaction.user_id = None
+        transaction.decision_source = "manual"
+        transaction.match_reason = f"blacklist: {pattern}"
+        await _deactivate_payment(session, transaction)
+        await _rematch_pending(session, configured.account_id)
     else:
         transaction.decision_source = "automatic"
         if transaction.deleted:
@@ -864,7 +927,7 @@ async def decide(
             values = await list_transactions(session, include_blacklisted=True, status=None)
             return next(value for value in values if value.id == transaction_id)
         users = await _users_with_contacts(session)
-        blacklist = list((await session.execute(select(ZenMoneyBlacklistEntry.pattern))).scalars())
+        blacklist = await _blacklist_patterns(session, configured.account_id)
         learned_rules = await _learned_rules(session)
         match = match_sender(_sender_text(transaction), users, blacklist, learned_rules)
         transaction.status, transaction.user_id, transaction.match_reason = (

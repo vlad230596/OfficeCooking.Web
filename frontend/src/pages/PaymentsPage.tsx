@@ -25,7 +25,7 @@ const statusLabels: Record<ZenMoneyStatus, string> = {
 }
 
 type PaymentView = 'new' | 'accepted' | 'excluded'
-type DecisionAction = 'assign' | 'approve' | 'reject' | 'retry'
+type DecisionAction = 'assign' | 'approve' | 'reject' | 'retry' | 'blacklist'
 
 export function PaymentsPage() {
   const { hasRole } = useAuth()
@@ -129,7 +129,8 @@ function TransactionCard({ item, users, pending, onDecision }: { item: ZenMoneyT
       <button className="button button--secondary" disabled={pending || !userId} type="button" onClick={() => onDecision('assign', userId)}>Сопоставить</button>
       {item.status === 'matched' && !item.paymentId && <button className="button payment-approve" disabled={pending} type="button" onClick={() => onDecision('approve')}>Учесть платёж</button>}
       <button className="button payment-reject" disabled={pending} type="button" onClick={() => onDecision('reject')}>Отклонить</button>
-      {item.decisionSource === 'manual' && <button className="payment-retry" disabled={pending} type="button" onClick={() => onDecision('retry')}>Автопоиск</button>}
+      <button className="button button--secondary payment-blacklist" disabled={pending || item.status === 'blacklisted'} type="button" onClick={() => onDecision('blacklist')}>В blacklist</button>
+      {item.decisionSource === 'manual' && <button className="button button--secondary payment-retry" disabled={pending} type="button" onClick={() => onDecision('retry')}>Автопоиск</button>}
     </div>
   </article>
 }
@@ -155,9 +156,8 @@ function ZenMoneySettingsPanel({ onSaved }: { onSaved: () => void }) {
   const settings = useQuery({ queryKey: ['zenmoney-settings'], queryFn: ({ signal }) => getZenMoneySettings({ signal }) })
   const [token, setToken] = useState('')
   const [accounts, setAccounts] = useState<ZenMoneyAccount[]>([])
-  const [selectedAccounts, setSelectedAccounts] = useState<Array<{ accountId: string; accountTitle: string; paymentTypeId: string }>>([])
-  const [blacklist, setBlacklist] = useState('')
-  useEffect(() => { if (settings.data) { setSelectedAccounts(settings.data.accounts.map(item => ({ accountId: item.accountId, accountTitle: item.accountTitle, paymentTypeId: item.paymentTypeId }))); setBlacklist(settings.data.blacklist.join('\n')) } }, [settings.data])
+  const [selectedAccounts, setSelectedAccounts] = useState<Array<{ accountId: string; accountTitle: string; paymentTypeId: string; blacklist: string[] }>>([])
+  useEffect(() => { if (settings.data) setSelectedAccounts(settings.data.accounts.map(item => ({ accountId: item.accountId, accountTitle: item.accountTitle, paymentTypeId: item.paymentTypeId, blacklist: item.blacklist }))) }, [settings.data])
   const loadAccounts = useMutation({ mutationFn: () => listZenMoneyAccounts(token.trim() || undefined), onSuccess: setAccounts })
   const save = useMutation({
     mutationFn: (request: SaveZenMoneySettingsRequest) => saveZenMoneySettings(request),
@@ -166,12 +166,12 @@ function ZenMoneySettingsPanel({ onSaved }: { onSaved: () => void }) {
   function submit(event: FormEvent) {
     event.preventDefault()
     if (selectedAccounts.length === 0 || selectedAccounts.some(item => !item.paymentTypeId)) return
-    save.mutate({ ...(token.trim() ? { accessToken: token.trim() } : {}), accounts: selectedAccounts, blacklist: blacklist.split('\n').map(value => value.trim()).filter(Boolean) })
+    save.mutate({ ...(token.trim() ? { accessToken: token.trim() } : {}), accounts: selectedAccounts })
   }
   function toggleAccount(account: ZenMoneyAccount, checked: boolean) {
     const accountTitle = [account.companyTitle, account.title].filter(Boolean).join(' · ')
     setSelectedAccounts(current => checked
-      ? [...current, { accountId: account.id, accountTitle, paymentTypeId: settings.data?.paymentTypes[0]?.id ?? '' }]
+      ? [...current, { accountId: account.id, accountTitle, paymentTypeId: settings.data?.paymentTypes[0]?.id ?? '', blacklist: [] }]
       : current.filter(item => item.accountId !== account.id))
   }
   const accountChoices = accounts.length > 0
@@ -186,13 +186,15 @@ function ZenMoneySettingsPanel({ onSaved }: { onSaved: () => void }) {
       <button className="button button--secondary" type="button" disabled={loadAccounts.isPending || (!token.trim() && !settings.data?.tokenConfigured)} onClick={() => loadAccounts.mutate()}>{loadAccounts.isPending ? 'Загрузка…' : 'Получить счета'}</button>
       <div className="zen-account-list"><strong>Счета для импорта</strong>{accountChoices.map(account => {
         const selected = selectedAccounts.find(item => item.accountId === account.id)
-        return <div className="zen-account-row" key={account.id}>
-          <label className="checkbox"><input type="checkbox" checked={Boolean(selected)} onChange={event => toggleAccount(account, event.target.checked)} />{[account.companyTitle, account.title, account.syncIds.join(', ')].filter(Boolean).join(' · ')}</label>
-          {selected && <select aria-label={`Тип платежа для ${account.title}`} required value={selected.paymentTypeId} onChange={event => setSelectedAccounts(current => current.map(item => item.accountId === account.id ? { ...item, paymentTypeId: event.target.value } : item))}><option value="">Выберите тип платежа</option>{settings.data?.paymentTypes.map(type => <option key={type.id} value={type.id}>{type.name}</option>)}</select>}
+        return <div className={`zen-account-row${selected ? ' is-selected' : ''}`} key={account.id}>
+          <label className="checkbox zen-account-choice"><input type="checkbox" checked={Boolean(selected)} onChange={event => toggleAccount(account, event.target.checked)} /><span>{[account.companyTitle, account.title, account.syncIds.join(', ')].filter(Boolean).join(' · ')}</span></label>
+          {selected && <div className="zen-account-config">
+            <label>Тип платежа<select aria-label={`Тип платежа для ${account.title}`} required value={selected.paymentTypeId} onChange={event => setSelectedAccounts(current => current.map(item => item.accountId === account.id ? { ...item, paymentTypeId: event.target.value } : item))}><option value="">Выберите тип платежа</option>{settings.data?.paymentTypes.map(type => <option key={type.id} value={type.id}>{type.name}</option>)}</select></label>
+            <label>Blacklist этого счёта<textarea rows={3} value={selected.blacklist.join('\n')} placeholder="Имя, телефон или признак операции — по одному на строку" onChange={event => setSelectedAccounts(current => current.map(item => item.accountId === account.id ? { ...item, blacklist: event.target.value.split('\n') } : item))} /></label>
+          </div>}
         </div>
       })}</div>
     </div>
-    <label>Blacklist — имя или телефон, по одному на строку<textarea rows={5} value={blacklist} onChange={event => setBlacklist(event.target.value)} /></label>
     {(loadAccounts.isError || save.isError) && <p className="form-error">{(loadAccounts.error || save.error)?.message}</p>}
     <button className="button" disabled={save.isPending || selectedAccounts.length === 0 || (!token.trim() && !settings.data?.tokenConfigured)} type="submit">{save.isPending ? 'Сохраняем…' : 'Сохранить настройки'}</button>
   </form>

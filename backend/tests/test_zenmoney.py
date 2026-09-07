@@ -50,6 +50,12 @@ def test_blacklist_wins_before_user_matching() -> None:
     )
 
     assert result.status == "blacklisted"
+
+
+def test_account_blacklist_can_match_transactions_without_sender() -> None:
+    result = match_sender("", [], ["Операции без отправителя"])
+
+    assert result.status == "blacklisted"
     assert result.user_id is None
 
 

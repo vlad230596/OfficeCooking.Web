@@ -18,6 +18,7 @@ from app.api.contracts import (
     BalancesResponse,
     CloseBalanceAdjustmentRequest,
     CloseBalancePreviewResponse,
+    CreateBalanceAdjustmentRequest,
     CreateBalancePaymentRequest,
     DateRangeQuery,
     ErrorEnvelope,
@@ -170,6 +171,31 @@ async def close_balance_preview(
         return await service.close_balance_preview(user_id, adjustment_date)
     except UserNotFoundError:
         return _error_response(request, 404, "user_not_found", "User was not found.")
+
+
+@router.post(
+    "/users/{userId}/adjustments",
+    response_model=BalanceAdjustmentResponse,
+    responses={404: {"model": ErrorEnvelope}, 409: {"model": ErrorEnvelope}},
+)
+async def create_adjustment(
+    request: Request,
+    user_id: Annotated[UUID, Path(alias="userId")],
+    body: CreateBalanceAdjustmentRequest,
+    service: Annotated[BalanceService, Depends(get_balance_service)],
+) -> BalanceAdjustmentResponse | JSONResponse:
+    try:
+        return await service.create_adjustment(
+            user_id,
+            body,
+            getattr(getattr(request.state, "principal", None), "user_id", None),
+        )
+    except UserNotFoundError:
+        return _error_response(request, 404, "user_not_found", "User was not found.")
+    except BalanceChangedError:
+        return _error_response(
+            request, 409, "balance_changed", "Balance changed; refresh and retry."
+        )
 
 
 @router.post(

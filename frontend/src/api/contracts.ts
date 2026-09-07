@@ -327,7 +327,6 @@ export type ZenMoneySettings = {
   serverTimestamp: number
   lastSyncAt: string | null
   accounts: ZenMoneyConfiguredAccount[]
-  blacklist: string[]
   paymentTypes: ZenMoneyPaymentType[]
 }
 export type ZenMoneyConfiguredAccount = {
@@ -336,11 +335,11 @@ export type ZenMoneyConfiguredAccount = {
   paymentTypeId: UUID
   serverTimestamp: number
   lastSyncAt: string | null
+  blacklist: string[]
 }
 export type SaveZenMoneySettingsRequest = {
   accessToken?: string
-  accounts: Array<{ accountId: string; accountTitle: string; paymentTypeId: UUID }>
-  blacklist: string[]
+  accounts: Array<{ accountId: string; accountTitle: string; paymentTypeId: UUID; blacklist: string[] }>
 }
 export type ZenMoneySyncResult = {
   received: number

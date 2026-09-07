@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
-import { closeUserBalance, createUserPayment, deleteUserPayment, getCloseBalancePreview, getUserBalance, listBalances } from '../api'
+import { createUserAdjustment, createUserPayment, deleteUserPayment, getUserBalance, listBalances } from '../api'
 import type { BalancePayment, IsoDate, UserBalance } from '../api'
 import { useAuth } from '../auth'
 import { EmptyState, ErrorState, LoadingState } from '../components/AsyncState'
@@ -35,6 +35,8 @@ export function BalancesPage() {
   const [paymentTypeId, setPaymentTypeId] = useState('')
   const [paymentComment, setPaymentComment] = useState('')
   const [adjustmentOpen, setAdjustmentOpen] = useState(false)
+  const [adjustmentDate, setAdjustmentDate] = useState<IsoDate>(localToday)
+  const [adjustmentAmount, setAdjustmentAmount] = useState('')
   const [adjustmentReason, setAdjustmentReason] = useState('')
   const rangeIsValid = /^\d{4}-\d{2}-\d{2}$/.test(dateFrom)
     && /^\d{4}-\d{2}-\d{2}$/.test(dateTo)
@@ -72,15 +74,12 @@ export function BalancesPage() {
       ])
     },
   })
-  const adjustmentPreview = useMutation({
-    mutationFn: ({ userId, adjustmentDate }: { userId: string; adjustmentDate: IsoDate }) => getCloseBalancePreview(userId, adjustmentDate),
-  })
-  const closeBalance = useMutation({
-    mutationFn: ({ userId, expectedBalance, reason }: { userId: string; expectedBalance: number; reason: string }) => closeUserBalance(userId, { adjustmentDate: dateTo, expectedBalance, reason }),
+  const createAdjustment = useMutation({
+    mutationFn: ({ userId, value, reason }: { userId: string; value: number; reason: string }) => createUserAdjustment(userId, { balanceDateFrom: dateFrom, balanceDateTo: dateTo, adjustmentDate, expectedBalance: selectedUser!.cumulativeBalance, amount: value, reason }),
     onSuccess: async () => {
       setAdjustmentOpen(false)
+      setAdjustmentAmount('')
       setAdjustmentReason('')
-      adjustmentPreview.reset()
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['balances'] }),
         queryClient.invalidateQueries({ queryKey: ['balance-detail'] }),
@@ -111,14 +110,16 @@ export function BalancesPage() {
     if (!selectedUser) return
     setPaymentFormOpen(false)
     setAdjustmentOpen(true)
+    setAdjustmentDate(dateTo)
+    setAdjustmentAmount('')
     setAdjustmentReason('')
-    adjustmentPreview.mutate({ userId: selectedUser.userId, adjustmentDate: dateTo })
   }
 
   function submitAdjustment(event: FormEvent) {
     event.preventDefault()
-    if (!selectedUser || !adjustmentPreview.data || !adjustmentReason.trim()) return
-    closeBalance.mutate({ userId: selectedUser.userId, expectedBalance: adjustmentPreview.data.balanceBefore, reason: adjustmentReason.trim() })
+    const value = Number(adjustmentAmount)
+    if (!selectedUser || !Number.isInteger(value) || value === 0 || !adjustmentReason.trim()) return
+    createAdjustment.mutate({ userId: selectedUser.userId, value, reason: adjustmentReason.trim() })
   }
 
   return (
@@ -160,7 +161,7 @@ export function BalancesPage() {
                 <thead><tr><th scope="col">Участник</th><th scope="col">Внесено</th><th scope="col">Начислено</th><th scope="col">Готовок</th><th scope="col">Баланс</th></tr></thead>
                 <tbody>{balancesQuery.data.items.map((user) => (
                   <tr key={user.userId} data-selected={selectedUser?.userId === user.userId}>
-                    <th scope="row"><button type="button" onClick={() => { setSelectedUser(user); setPaymentFormOpen(false) }}>{user.userName}</button></th>
+                    <th scope="row"><button type="button" onClick={() => { setSelectedUser(user); setPaymentFormOpen(false); setAdjustmentOpen(false) }}>{user.userName}</button></th>
                     <td>{amount(user.positive)}</td><td>{amount(user.negative)}</td><td>{user.cooksCount}</td>
                     <td className={user.cumulativeBalance < 0 ? 'amount--negative' : 'amount--positive'}>{amount(user.cumulativeBalance)}</td>
                   </tr>
@@ -170,7 +171,7 @@ export function BalancesPage() {
           </section>
 
           <section className="balances-panel balances-detail" aria-labelledby="balance-detail-title">
-            <div className="balances-panel__heading"><div><span className="eyebrow">Расчётные недели</span><h2 id="balance-detail-title">{selectedUser?.userName ?? 'Выберите участника'}</h2></div>{selectedUser && hasRole('editor') && <div className="balance-actions"><button className="button button--secondary add-payment-button" type="button" onClick={() => paymentFormOpen ? setPaymentFormOpen(false) : openPaymentForm()}>{paymentFormOpen ? 'Отмена' : 'Добавить платёж'}</button><button className="button button--secondary" type="button" onClick={() => adjustmentOpen ? setAdjustmentOpen(false) : openAdjustmentForm()}>{adjustmentOpen ? 'Отмена' : 'Скорректировать до нуля'}</button></div>}</div>
+            <div className="balances-panel__heading"><div><span className="eyebrow">Расчётные недели</span><h2 id="balance-detail-title">{selectedUser?.userName ?? 'Выберите участника'}</h2></div>{selectedUser && hasRole('editor') && <div className="balance-actions"><button className="button button--secondary add-payment-button" type="button" onClick={() => paymentFormOpen ? setPaymentFormOpen(false) : openPaymentForm()}>{paymentFormOpen ? 'Отмена' : 'Добавить платёж'}</button><button className="button button--secondary" type="button" onClick={() => adjustmentOpen ? setAdjustmentOpen(false) : openAdjustmentForm()}>{adjustmentOpen ? 'Отмена' : 'Корректировка'}</button></div>}</div>
             {paymentFormOpen && selectedUser && detailQuery.data && <form className="manual-payment" onSubmit={submitPayment}>
               <strong>Полученный платёж · {selectedUser.userName}</strong>
               <label>Дата получения<input required type="date" value={paymentDate} onChange={event => setPaymentDate(event.target.value as IsoDate)} /></label>
@@ -181,11 +182,12 @@ export function BalancesPage() {
               {createPayment.isError && <p className="form-error">Не удалось добавить платёж: {createPayment.error.message}</p>}
             </form>}
             {adjustmentOpen && selectedUser && <form className="manual-payment" onSubmit={submitAdjustment}>
-              <strong>Корректировка баланса · {selectedUser.userName}</strong>
-              <p>На {displayDate(dateTo)}: {adjustmentPreview.isPending ? 'считаем…' : adjustmentPreview.data ? `${amount(adjustmentPreview.data.balanceBefore)} → 0 (корректировка ${adjustmentPreview.data.adjustmentAmount > 0 ? '+' : ''}${amount(adjustmentPreview.data.adjustmentAmount)})` : 'не удалось рассчитать'}</p>
+              <strong>Корректировка · {selectedUser.userName} · текущий баланс за период: {amount(selectedUser.cumulativeBalance)}</strong>
+              <label>Дата<input required type="date" min={dateFrom} max={dateTo} value={adjustmentDate} onChange={event => setAdjustmentDate(event.target.value as IsoDate)} /></label>
+              <label>Сумма<input required step="1" inputMode="numeric" type="number" value={adjustmentAmount} onChange={event => setAdjustmentAmount(event.target.value)} placeholder="Например, -155 или 200" /></label>
               <label className="manual-payment__comment">Причина<input required maxLength={1000} value={adjustmentReason} onChange={event => setAdjustmentReason(event.target.value)} placeholder="Например: закрытие старой погрешности" /></label>
-              <button className="button" disabled={closeBalance.isPending || !adjustmentPreview.data || adjustmentPreview.data.balanceBefore === 0 || !adjustmentReason.trim()} type="submit">{closeBalance.isPending ? 'Сохраняем…' : 'Зафиксировать корректировку'}</button>
-              {(adjustmentPreview.isError || closeBalance.isError) && <p className="form-error">Не удалось сохранить корректировку: {(adjustmentPreview.error || closeBalance.error)?.message}</p>}
+              <button className="button" disabled={createAdjustment.isPending || !Number.isInteger(Number(adjustmentAmount)) || Number(adjustmentAmount) === 0 || !adjustmentReason.trim()} type="submit">{createAdjustment.isPending ? 'Сохраняем…' : 'Добавить корректировку'}</button>
+              {createAdjustment.isError && <p className="form-error">Не удалось сохранить корректировку: {createAdjustment.error.message}</p>}
             </form>}
             {!selectedUser && <p className="balances-detail__prompt">Нажмите на участника, чтобы увидеть недельные итоги.</p>}
             {selectedUser && detailQuery.isPending && <LoadingState label="Загружаем детализацию…" />}

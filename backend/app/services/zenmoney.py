@@ -41,6 +41,11 @@ ZENMONEY_DIFF_URL = "https://api.zenmoney.ru/v8/diff/"
 _TRANSACTION_NAMESPACE = uuid.UUID("ea925fd2-894a-4d4c-88ad-cc58e267097f")
 _SPACE = re.compile(r"\s+")
 _NON_WORD = re.compile(r"[^\w+]+", re.UNICODE)
+_TBANK_DEFAULT_BLACKLIST = (
+    "Зачисление кэшбэка",
+    "Супермаркеты в Городе",
+    "Операции без отправителя",
+)
 
 
 class ZenMoneyError(RuntimeError):
@@ -155,6 +160,17 @@ def accounts_from_diff(diff: dict[str, Any]) -> list[ZenMoneyAccountResponse]:
             )
         )
     return sorted(result, key=lambda item: (item.archived, item.company_title or "", item.title))
+
+
+def _account_blacklist(requested: Any, remote: ZenMoneyAccountResponse) -> list[str]:
+    values = list(requested.blacklist)
+    title = " ".join(value for value in (remote.company_title, remote.title) if value).casefold()
+    if "т-банк" in title:
+        existing = {value.casefold() for value in values}
+        values.extend(
+            value for value in _TBANK_DEFAULT_BLACKLIST if value.casefold() not in existing
+        )
+    return values
 
 
 async def get_settings_response(session: AsyncSession) -> ZenMoneySettingsResponse:
@@ -290,12 +306,16 @@ async def _save_multi_account_settings(
                 config.server_timestamp = 0
         configs[config.account_id] = config
 
+    blacklists_by_account = {
+        account.account_id: _account_blacklist(account, available[account.account_id])
+        for account in request.accounts
+    }
     await session.execute(delete(ZenMoneyBlacklistEntry))
     session.add_all(
         [
             ZenMoneyBlacklistEntry(id=uuid.uuid4(), account_id=account.account_id, pattern=pattern)
             for account in request.accounts
-            for pattern in account.blacklist
+            for pattern in blacklists_by_account[account.account_id]
         ]
     )
     await session.flush()
@@ -314,11 +334,7 @@ async def _save_multi_account_settings(
             match = match_sender(
                 _sender_text(transaction),
                 users,
-                next(
-                    item.blacklist
-                    for item in request.accounts
-                    if item.account_id == transaction.account_id
-                ),
+                blacklists_by_account[transaction.account_id],
                 learned_rules,
             )
             transaction.status = "review" if transaction.hold else match.status

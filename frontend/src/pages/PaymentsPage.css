@@ -40,6 +40,10 @@
   .payment-card__actions select { grid-column: 1 / -1; }
   .zen-settings__grid { grid-template-columns: 1fr; }
 }
+@media (max-width: 1000px) {
+  .payment-card { grid-template-columns: 1fr; }
+  .payment-card__actions { width: auto; }
+}
 /* Multi-account ZenMoney settings. */
 .zen-account-list { display: grid; gap: .65rem; grid-column: 1 / -1; }
 .zen-account-row { display: grid; gap: .65rem; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }

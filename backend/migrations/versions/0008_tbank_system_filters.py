@@ -35,7 +35,7 @@ def upgrade() -> None:
         )::uuid, account_id, pattern
         FROM (
             SELECT config.account_id, defaults.pattern,
-                   md5(config.account_id || ':office-cooking:' || defaults.pattern) AS hash
+                   md5(config.account_id || defaults.pattern) AS hash
             FROM zenmoney_account_configs config
             CROSS JOIN (VALUES
                 ({cashback}),
@@ -45,10 +45,10 @@ def upgrade() -> None:
             WHERE lower(config.account_title) LIKE '%' || lower({tbank}) || '%'
         ) generated
         ON CONFLICT DO NOTHING
-        f"""
+        """
     )
     op.execute(
-        """
+        f"""
         UPDATE zenmoney_transactions zt
         SET status = 'blacklisted', user_id = NULL,
             match_reason = CASE
@@ -93,10 +93,10 @@ def downgrade() -> None:
               'blacklist: ' || {city},
               'blacklist: ' || {empty}
           )
-        f"""
+        """
     )
     op.execute(
-        """
+        f"""
         DELETE FROM zenmoney_blacklist_entries entry
         USING zenmoney_account_configs config
         WHERE entry.account_id = config.account_id

@@ -1,4 +1,7 @@
-.cook-editor form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.cook-editor > form { scroll-margin-top: 64px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.cook-section-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.cook-section-nav a { display: inline-flex; align-items: center; min-height: 44px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--green); text-decoration: none; font-size: 13px; font-weight: 700; }
+.cook-section-nav a:hover { border-color: var(--green); }
 .cook-editor form > .editor-panel:first-of-type, .editor-mode-note, .editor-alert, .editor-submit { grid-column: 1 / -1; }
 .cook-editor form > .editor-panel:not(:first-of-type) { max-height: calc(100vh - 245px); }
 .editor-panel { display: flex; min-height: 0; flex-direction: column; overflow: hidden; border: 1px solid var(--line, #d8d4ca); border-radius: 12px; background: var(--surface, #fff); }
@@ -49,12 +52,14 @@
 .editor-mode-note span { color: #557064; }
 .editor-submit { display: flex; justify-content: flex-end; }
 @media (max-width: 720px) {
-  .cook-editor form { grid-template-columns: minmax(0, 1fr); }
+  .cook-editor > .page-intro h1 { white-space: normal; }
+  .cook-editor > form { grid-template-columns: minmax(0, 1fr); }
   .cook-editor form > .editor-panel:first-of-type, .editor-mode-note, .editor-alert, .editor-submit { grid-column: auto; }
   .cook-editor form > .editor-panel:not(:first-of-type) { max-height: none; }
   .editor-panel__heading p { display: none; }
   .expense-actions { align-items: flex-end; flex-direction: column; }
-  .editor-fields { grid-template-columns: 1fr 1fr; }
+  .editor-fields { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .editor-fields input, .editor-fields select { min-width: 0; }
   .editor-fields .editor-fields__checkbox { grid-column: 1 / -1; }
   .member-table th, .member-table td { padding-inline: 7px; }
   .member-table tbody th { min-width: 105px; }

@@ -195,6 +195,8 @@ export type CalculateSelectionResponse = {
   total: number
   positiveCharges: UserCharge[]
   positiveTotal: number
+  negativeCharges?: UserCharge[]
+  separateOwed?: UserCharge[]
 }
 
 export type DraftCookPreviewRequest = {
@@ -236,6 +238,9 @@ export type UserBalance = {
   cooksCount: number
   cumulativeBalance: number
   adjustments: number
+  purchasesTotal?: number
+  reimbursementsTotal?: number
+  separateOwed?: number
 }
 
 export type BalancesResponse = {
@@ -258,6 +263,10 @@ export type WeekBalance = {
   payments: BalancePayment[]
   cooks: BalanceCook[]
   adjustments: BalanceAdjustment[]
+  purchasesTotal?: number
+  reimbursementsTotal?: number
+  separateOwed?: number
+  settlementEvents?: Array<{ id: UUID; cookId: UUID; eventDate: IsoDate; kind: 'purchase' | 'reimbursement'; amount: number; description: string; mode?: 'offset' | 'separate'; separateOwed?: number | null }>
 }
 
 export type BalanceAdjustment = {

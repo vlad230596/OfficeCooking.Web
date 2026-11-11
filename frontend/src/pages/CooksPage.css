@@ -68,3 +68,8 @@
   .cooks-result__heading h2 { font-size: 14px; }
   .cooks-result__actions { gap: 7px; }
 }
+.cooks-refunds { padding: 16px; border-top: 1px solid var(--line); }
+.cooks-refunds h3 { margin: 0 0 12px; font-size: 16px; }
+.cooks-refund-card { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px; margin-top: 8px; border: 1px solid var(--accent); border-radius: 10px; background: #fff5e8; }
+.cooks-refund-card small { display: block; margin-top: 4px; color: var(--muted); }
+.cooks-refund-card strong { font-size: 20px; }

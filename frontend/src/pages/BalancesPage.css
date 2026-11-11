@@ -83,3 +83,7 @@
 }
 /* Payment and audited-adjustment controls share the detail header. */
 .balance-actions { display: flex; gap: .5rem; flex-wrap: wrap; justify-content: flex-end; }
+.balance-purchase-total { display: block; color: var(--green); font-weight: 700; }
+.balance-return-total { display: block; margin-top: 4px; color: var(--muted); }
+.balance-separate-owed { display: block; margin-top: 6px; color: #7b4209; font-weight: 700; }
+.week-card__summary .summary-refund { background: #fff6e6; color: #7b4209; }

@@ -27,6 +27,7 @@ from app.api.contracts import (
     UserBalanceResponse,
     WeekBalanceResponse,
 )
+from app.api.contracts.settlements import SettlementEventResponse
 from app.domain.legacy_calculation import LegacyCalculationError, ceil_to_5, float32
 from app.models import (
     BalanceAdjustment,
@@ -100,6 +101,9 @@ class _MutableWeek:
     negative: int = 0
     cooks_count: int = 0
     adjustment: int = 0
+    purchases_total: int = 0
+    reimbursements_total: int = 0
+    separate_owed: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +115,9 @@ class AggregatedUserBalance:
     cumulative_balance: int
     adjustments: int
     weeks: tuple[WeekBalanceResponse, ...]
+    purchases_total: int = 0
+    reimbursements_total: int = 0
+    separate_owed: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +157,7 @@ def aggregate_balances(
     date_from: date,
     date_to: date,
     adjustments: Iterable[AdjustmentTotal] = (),
+    settlement_events: Iterable[tuple[UUID, SettlementEventResponse]] = (),
 ) -> tuple[AggregatedUserBalance, ...]:
     """Aggregate inclusive-range events using the Legacy week identity."""
 
@@ -180,18 +188,42 @@ def aggregate_balances(
         key = legacy_week(adjustment.adjustment_date)
         weeks[adjustment.user_id].setdefault(key, _MutableWeek()).adjustment += adjustment.amount
 
+    events_by_week: dict[tuple[UUID, int, int], list[SettlementEventResponse]] = defaultdict(list)
+    for user_id, event in settlement_events:
+        if user_id not in known_users or not date_from <= event.event_date <= date_to:
+            continue
+        year, week = legacy_week(event.event_date)
+        value = weeks[user_id].setdefault((year, week), _MutableWeek())
+        if event.kind == "purchase":
+            value.purchases_total += event.amount
+            value.separate_owed += event.separate_owed or 0
+        else:
+            value.reimbursements_total += event.amount
+        events_by_week[(user_id, year, week)].append(event)
+
     result: list[AggregatedUserBalance] = []
     for user in users:
         cumulative = 0
         week_responses: list[WeekBalanceResponse] = []
         total_positive = total_negative = total_cooks = total_adjustments = 0
+        total_purchases = total_reimbursements = 0
+        total_separate_owed = 0
         for (year, week), value in sorted(weeks[user.id].items()):
-            weekly_delta = value.positive - value.negative + value.adjustment
+            weekly_delta = (
+                value.positive
+                - value.negative
+                + value.adjustment
+                + value.purchases_total
+                - value.reimbursements_total
+            )
             cumulative += weekly_delta
             total_positive += value.positive
             total_negative += value.negative
             total_cooks += value.cooks_count
             total_adjustments += value.adjustment
+            total_purchases += value.purchases_total
+            total_reimbursements += value.reimbursements_total
+            total_separate_owed += value.separate_owed
             week_responses.append(
                 WeekBalanceResponse(
                     year=year,
@@ -203,6 +235,10 @@ def aggregate_balances(
                     weekly_delta=weekly_delta,
                     cumulative_balance=cumulative,
                     adjustment=value.adjustment,
+                    purchases_total=value.purchases_total,
+                    reimbursements_total=value.reimbursements_total,
+                    separate_owed=value.separate_owed,
+                    settlement_events=events_by_week[(user.id, year, week)],
                 )
             )
         result.append(
@@ -214,6 +250,9 @@ def aggregate_balances(
                 cumulative_balance=cumulative,
                 adjustments=total_adjustments,
                 weeks=tuple(week_responses),
+                purchases_total=total_purchases,
+                reimbursements_total=total_reimbursements,
+                separate_owed=total_separate_owed,
             )
         )
     return tuple(result)
@@ -270,7 +309,7 @@ def calculate_cook_charges(
 
 
 class BalanceService:
-    """Read balances with four set-based queries, independent of user count."""
+    """Read balances with seven set-based queries, independent of user count."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -293,6 +332,9 @@ class BalanceService:
                     cooks_count=item.cooks_count,
                     cumulative_balance=item.cumulative_balance,
                     adjustments=item.adjustments,
+                    purchases_total=item.purchases_total,
+                    reimbursements_total=item.reimbursements_total,
+                    separate_owed=item.separate_owed,
                 )
                 for item in aggregated
             ],
@@ -592,7 +634,10 @@ class BalanceService:
             AdjustmentTotal(row.user_id, row.adjustment_date, int(row.amount))
             for row in adjustments_result
         )
-        return aggregate_balances(users, payments, charges, date_from, date_to, adjustments)
+        from app.services.settlements import load_settlement_events
+
+        events = await load_settlement_events(self._session, date_from, date_to)
+        return aggregate_balances(users, payments, charges, date_from, date_to, adjustments, events)
 
     @staticmethod
     def _payments_query(date_from: date, date_to: date) -> Select[tuple[UUID, date, int]]:

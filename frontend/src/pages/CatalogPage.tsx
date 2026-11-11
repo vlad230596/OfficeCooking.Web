@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent, type SetStateAction } from 'react'
 import {
   createTemplate,
   createUser,
@@ -16,6 +16,10 @@ import {
 import { ApiError } from '../api'
 import { ErrorState, LoadingState } from '../components/AsyncState'
 import { PageIntro } from '../components/PageIntro'
+import { TemplatePreparationEditor } from '../components/PreparationEditor'
+import { useAuth } from '../auth'
+import { draftKey, readDraft, writeDraft } from '../drafts'
+import { useLocalDraft } from '../useLocalDraft'
 import './CatalogPage.css'
 
 type CatalogTab = 'users' | 'dishes'
@@ -27,7 +31,35 @@ type DishDraft = Omit<SaveTemplateRequest, 'voteVariants'> & {
 const emptyUser = (): UserDraft => ({ name: '', permanentSale: '1', enabled: true, contacts: [] })
 const emptyDish = (): DishDraft => ({ name: '', isMultivote: false, voteVariants: [], ingredients: [] })
 
+type Workspace<T> = { selectedId: string | null; drafts: Record<string, T> }
+const emptyWorkspace = <T,>(): Workspace<T> => ({ selectedId: null, drafts: {} })
+const isUserDraft = (value: unknown): value is UserDraft => {
+  const draft = value as UserDraft | null
+  return !!draft && typeof draft.name === 'string' && typeof draft.permanentSale === 'string'
+    && typeof draft.enabled === 'boolean' && Array.isArray(draft.contacts)
+    && draft.contacts.every(item => item && typeof item.value === 'string')
+}
+const isDishDraft = (value: unknown): value is DishDraft => {
+  const draft = value as DishDraft | null
+  return !!draft && typeof draft.name === 'string' && typeof draft.isMultivote === 'boolean'
+    && Array.isArray(draft.voteVariants) && draft.voteVariants.every(item => item && typeof item.name === 'string' && typeof item.value === 'string')
+    && Array.isArray(draft.ingredients) && draft.ingredients.every(item => item && typeof item.name === 'string' && typeof item.enabled === 'boolean')
+}
+function isWorkspace<T>(value: unknown, validate: (item: unknown) => item is T): value is Workspace<T> {
+  const workspace = value as Workspace<T> | null
+  return !!workspace && (workspace.selectedId === null || typeof workspace.selectedId === 'string')
+    && !!workspace.drafts && typeof workspace.drafts === 'object' && !Array.isArray(workspace.drafts)
+    && Object.values(workspace.drafts).every(validate)
+}
+const isUserWorkspace = (value: unknown): value is Workspace<UserDraft> => isWorkspace(value, isUserDraft)
+const isDishWorkspace = (value: unknown): value is Workspace<DishDraft> => isWorkspace(value, isDishDraft)
+
 export function CatalogPage() {
+  const { user } = useAuth()
+  return user ? <CatalogWorkspace key={user.id} accountId={user.id} /> : <LoadingState label="Загрузка справочников…" />
+}
+
+function CatalogWorkspace({ accountId }: { accountId: string }) {
   const [tab, setTab] = useState<CatalogTab>('users')
 
   return (
@@ -37,28 +69,33 @@ export function CatalogPage() {
         <button role="tab" aria-selected={tab === 'users'} className={tab === 'users' ? 'is-active' : ''} onClick={() => setTab('users')}>Пользователи</button>
         <button role="tab" aria-selected={tab === 'dishes'} className={tab === 'dishes' ? 'is-active' : ''} onClick={() => setTab('dishes')}>Блюда</button>
       </div>
-      {tab === 'users' ? <UsersEditor /> : <DishesEditor />}
+      {tab === 'users' ? <UsersEditor accountId={accountId} /> : <DishesEditor accountId={accountId} />}
     </section>
   )
 }
 
-function UsersEditor() {
+function UsersEditor({ accountId }: { accountId: string }) {
   const queryClient = useQueryClient()
   const usersQuery = useQuery({ queryKey: ['users', 'all'], queryFn: ({ signal }) => listUsers({ enabled: 'all', signal }) })
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [draft, setDraft] = useState<UserDraft>(emptyUser)
+  const storageKey = draftKey(accountId, 'catalog:users')
+  const [workspace, setWorkspace, storageFailed] = useLocalDraft(storageKey, emptyWorkspace<UserDraft>, isUserWorkspace)
+  const selectedId = workspace.selectedId
+  const selectedKey = selectedId ?? 'new'
+  const setSelectedId = (id: string | null) => setWorkspace(current => ({ ...current, selectedId: id }))
   const selected = usersQuery.data?.find(item => item.id === selectedId)
-
-  useEffect(() => {
-    if (selected) setDraft(userToDraft(selected))
-  }, [selected])
+  const draft = workspace.drafts[selectedKey] ?? (selected ? userToDraft(selected) : emptyUser())
+  const setDraft = (update: SetStateAction<UserDraft>) => setWorkspace(current => ({ ...current,
+    drafts: { ...current.drafts, [selectedKey]: typeof update === 'function' ? update(current.drafts[selectedKey] ?? draft) : update },
+  }))
 
   const save = useMutation({
     mutationFn: (request: SaveUserRequest) => selectedId ? updateUser(selectedId, request) : createUser(request),
     onSuccess: async (user) => {
       await queryClient.invalidateQueries({ queryKey: ['users'] })
-      setSelectedId(user.id)
-      setDraft(userToDraft(user))
+      const current = readDraft(storageKey, isUserWorkspace) ?? workspace
+      const drafts = { ...current.drafts }; delete drafts[selectedKey]
+      const next = { selectedId: user.id, drafts }
+      writeDraft(storageKey, next); setWorkspace(next)
     },
   })
 
@@ -74,15 +111,16 @@ function UsersEditor() {
 
   return (
     <div className="catalog-workspace">
-      <CatalogList title="Пользователи" addLabel="Добавить пользователя" onAdd={() => { setSelectedId(null); setDraft(emptyUser()); save.reset() }}>
+      <CatalogList title="Пользователи" addLabel="Добавить пользователя" onAdd={() => { if (save.isPending) return; setSelectedId(null); save.reset() }}>
         {usersQuery.data?.map(user => (
-          <button key={user.id} type="button" className={selectedId === user.id ? 'is-selected' : ''} onClick={() => { setSelectedId(user.id); save.reset() }}>
+          <button key={user.id} type="button" disabled={save.isPending} className={selectedId === user.id ? 'is-selected' : ''} onClick={() => { setSelectedId(user.id); save.reset() }}>
             <span>{user.name}</span><small>{user.enabled ? 'активен' : 'отключён'}</small>
           </button>
         ))}
       </CatalogList>
-      <form className="catalog-editor" onSubmit={submit}>
+      <form className="catalog-editor" inert={save.isPending} onSubmit={submit}>
         <EditorHeading title={selectedId ? 'Редактирование пользователя' : 'Новый пользователь'} />
+        <DraftStatus failed={storageFailed} restored={Boolean(workspace.drafts[selectedKey])} />
         <div className="catalog-fields catalog-fields--two">
           <label>Имя<input required maxLength={200} value={draft.name} onChange={event => setDraft(current => ({ ...current, name: event.target.value }))} /></label>
           <label>Постоянный коэффициент<input required inputMode="decimal" type="number" step="any" value={draft.permanentSale} onChange={event => setDraft(current => ({ ...current, permanentSale: event.target.value }))} /></label>
@@ -104,24 +142,30 @@ function UsersEditor() {
   )
 }
 
-function DishesEditor() {
+function DishesEditor({ accountId }: { accountId: string }) {
   const queryClient = useQueryClient()
   const templatesQuery = useQuery({ queryKey: ['templates'], queryFn: ({ signal }) => listTemplates({ signal }) })
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [draft, setDraft] = useState<DishDraft>(emptyDish)
+  const storageKey = draftKey(accountId, 'catalog:dishes')
+  const [workspace, setWorkspace, storageFailed] = useLocalDraft(storageKey, emptyWorkspace<DishDraft>, isDishWorkspace)
+  const selectedId = workspace.selectedId
+  const selectedKey = selectedId ?? 'new'
+  const setSelectedId = (id: string | null) => setWorkspace(current => ({ ...current, selectedId: id }))
   const detailQuery = useQuery({ queryKey: ['templates', selectedId], queryFn: ({ signal }) => getTemplate(selectedId!, { signal }), enabled: selectedId !== null })
 
-  useEffect(() => {
-    if (detailQuery.data) setDraft(dishToDraft(detailQuery.data))
-  }, [detailQuery.data])
+  const draft = workspace.drafts[selectedKey] ?? (detailQuery.data ? dishToDraft(detailQuery.data) : emptyDish())
+  const setDraft = (update: SetStateAction<DishDraft>) => setWorkspace(current => ({ ...current,
+    drafts: { ...current.drafts, [selectedKey]: typeof update === 'function' ? update(current.drafts[selectedKey] ?? draft) : update },
+  }))
 
   const save = useMutation({
     mutationFn: (request: SaveTemplateRequest) => selectedId ? updateTemplate(selectedId, request) : createTemplate(request),
     onSuccess: async (dish) => {
       queryClient.setQueryData(['templates', dish.id], dish)
       await queryClient.invalidateQueries({ queryKey: ['templates'] })
-      setSelectedId(dish.id)
-      setDraft(dishToDraft(dish))
+      const current = readDraft(storageKey, isDishWorkspace) ?? workspace
+      const drafts = { ...current.drafts }; delete drafts[selectedKey]
+      const next = { selectedId: dish.id, drafts }
+      writeDraft(storageKey, next); setWorkspace(next)
     },
   })
 
@@ -137,15 +181,16 @@ function DishesEditor() {
 
   return (
     <div className="catalog-workspace">
-      <CatalogList title="Блюда" addLabel="Добавить блюдо" onAdd={() => { setSelectedId(null); setDraft(emptyDish()); save.reset() }}>
+      <CatalogList title="Блюда" addLabel="Добавить блюдо" onAdd={() => { if (save.isPending) return; setSelectedId(null); save.reset() }}>
         {templatesQuery.data?.map(dish => (
-          <button key={dish.id} type="button" className={selectedId === dish.id ? 'is-selected' : ''} onClick={() => { setSelectedId(dish.id); save.reset() }}>
+          <button key={dish.id} type="button" disabled={save.isPending} className={selectedId === dish.id ? 'is-selected' : ''} onClick={() => { setSelectedId(dish.id); save.reset() }}>
             <span>{dish.name}</span><small>{dish.isMultivote ? 'несколько вариантов' : 'один вариант'}</small>
           </button>
         ))}
       </CatalogList>
-      <form className="catalog-editor" onSubmit={submit}>
+      <form className="catalog-editor" inert={save.isPending} onSubmit={submit}>
         <EditorHeading title={selectedId ? 'Редактирование блюда' : 'Новое блюдо'} />
+        <DraftStatus failed={storageFailed} restored={Boolean(workspace.drafts[selectedKey])} />
         {detailQuery.isFetching && selectedId ? <LoadingState label="Загружаем блюдо…" /> : <>
           <div className="catalog-fields"><label>Название<input required maxLength={200} value={draft.name} onChange={event => setDraft(current => ({ ...current, name: event.target.value }))} /></label></div>
           <label className="catalog-check"><input type="checkbox" checked={draft.isMultivote} onChange={event => setDraft(current => ({ ...current, isMultivote: event.target.checked }))} />Разрешить несколько вариантов порции</label>
@@ -174,8 +219,13 @@ function DishesEditor() {
           <SaveBar pending={save.isPending} error={save.error ?? detailQuery.error} label={selectedId ? 'Сохранить изменения' : 'Добавить блюдо'} />
         </>}
       </form>
+      {selectedId && <div className="catalog-preparation"><TemplatePreparationEditor templateId={selectedId} /></div>}
     </div>
   )
+}
+
+function DraftStatus({ failed, restored }: { failed: boolean; restored: boolean }) {
+  return <p role="status">{failed ? 'Не удалось сохранить черновик в браузере. Сохраните изменения перед закрытием страницы.' : restored ? 'Черновик сохранён в этом браузере.' : 'Изменения сохраняются в этом браузере автоматически.'}</p>
 }
 
 function CatalogList({ title, addLabel, onAdd, children }: { title: string; addLabel: string; onAdd: () => void; children: React.ReactNode }) {

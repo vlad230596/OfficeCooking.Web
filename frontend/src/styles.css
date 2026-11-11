@@ -90,7 +90,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   .desktop-nav { display: none; }
   .brand__mark { width: 32px; height: 32px; border-radius: 9px 9px 9px 3px; font-size: 12px; }
   .brand__subtitle { display: none; }
-  .app-content { width: auto; padding: 12px 10px 88px; }
+  .app-content { width: 100%; padding: 12px 10px 88px; }
   .app-footer { width: auto; margin: 0; padding: 0 10px calc(82px + env(safe-area-inset-bottom)); }
   .build-info { display: grid; justify-content: stretch; gap: 2px; padding-top: 7px; }
   .page-intro { display: flex; margin-bottom: 9px; }

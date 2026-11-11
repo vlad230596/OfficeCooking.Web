@@ -1,0 +1,41 @@
+.preparation { scroll-margin-top: 64px; margin-top: 16px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.preparation__heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.preparation h2 { margin: 5px 0; font-size: 21px; }
+.preparation h3 { margin: 20px 0 10px; font-size: 16px; }
+.preparation__hint { color: var(--muted); line-height: 1.5; font-size: 13px; }
+.preparation__total { color: var(--green); font-size: 32px; white-space: nowrap; }
+.preparation__total small { font-size: 14px; }
+.preparation details { margin: 14px 0; }
+.preparation summary { min-height: 44px; padding: 12px 0; cursor: pointer; font-weight: 650; }
+.preparation button { min-height: 44px; padding: 8px 12px; cursor: pointer; }
+.preparation button:not(.button) { border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: var(--surface); }
+.preparation__options, .preparation__members { display: grid; gap: 12px; }
+.preparation__controls { border: 0; padding: 0; margin: 0; min-width: 0; }
+.preparation button:active { filter: brightness(.92); }
+.preparation button:disabled { opacity: .5; cursor: not-allowed; }
+.preparation__batch p svg { vertical-align: text-bottom; }
+.preparation__option, .preparation__group { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; padding: 12px; border-radius: 9px; background: #f7f4ee; }
+.preparation label { display: grid; flex: 1 1 140px; gap: 5px; min-width: 0; font-size: 12px; font-weight: 650; }
+.preparation input, .preparation select { min-height: 44px; min-width: 0; width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--ink); }
+.preparation__member { min-width: 0; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+.preparation__member legend { padding: 0 6px; font-weight: 700; }
+.preparation__member > button { margin-top: 8px; }
+.preparation__group + .preparation__group { margin-top: 8px; }
+.preparation__cards, .preparation__batches { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr)); gap: 12px; }
+.preparation__card { display: grid; grid-template-columns: 65px 1fr; gap: 12px; padding: 16px; border: 1px solid var(--line); border-top: 4px solid var(--green); border-radius: 12px; background: #f7faf7; }
+.preparation__quantity { color: var(--green); font-size: 36px; line-height: 1; }
+.preparation__quantity small { display: block; margin-top: 5px; font-size: 12px; }
+.preparation__badges, .preparation__people { display: flex; flex-wrap: wrap; gap: 6px; align-content: start; }
+.preparation__badges span { padding: 5px 8px; border-radius: 7px; background: #e4ede5; font-size: 13px; overflow-wrap: anywhere; }
+.preparation__people { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: 10px; }
+.preparation__people span { padding: 4px 8px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); font-size: 12px; }
+.preparation__batch { display: grid; grid-template-columns: 1fr auto; gap: 9px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; }
+.preparation__batch > div { display: grid; gap: 3px; }
+.preparation__batch span, .preparation__batch p { font-size: 12px; }
+.preparation__batch p { grid-column: 1 / -1; margin: 0; line-height: 1.5; }
+.preparation__batch progress { grid-column: 1 / -1; width: 100%; height: 10px; accent-color: var(--green); }
+.preparation__batch--warning { border-color: #d89945; background: #fff6e6; color: #7b4209; }
+.preparation__batch--warning progress { accent-color: #a65a0c; }
+.preparation__save { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-top: 16px; }
+.preparation__save > span { flex: 1; color: var(--muted); font-size: 12px; }
+@media (max-width: 600px) { .preparation { padding: 12px; } .preparation__option, .preparation__group { display: grid; grid-template-columns: 1fr; } .preparation__save .button { width: 100%; } }

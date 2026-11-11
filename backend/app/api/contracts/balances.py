@@ -7,6 +7,7 @@ from pydantic import Field, model_validator
 
 from .base import ApiModel, IsoDate
 from .pagination import OrderingMetadata
+from .settlements import SettlementEventResponse
 
 
 class DateRangeQuery(ApiModel):
@@ -32,6 +33,9 @@ class UserBalanceResponse(ApiModel):
     cooks_count: int = Field(ge=0)
     cumulative_balance: int
     adjustments: int = 0
+    purchases_total: int = 0
+    reimbursements_total: int = 0
+    separate_owed: int = Field(default=0, ge=0)
 
 
 class BalancesResponse(ApiModel):
@@ -118,6 +122,10 @@ class WeekBalanceResponse(ApiModel):
     weekly_delta: int
     cumulative_balance: int
     adjustment: int = 0
+    purchases_total: int = 0
+    reimbursements_total: int = 0
+    separate_owed: int = Field(default=0, ge=0)
+    settlement_events: list[SettlementEventResponse] = Field(default_factory=list)
     payments: list[BalancePaymentResponse] = Field(default_factory=list)
     cooks: list[BalanceCookResponse] = Field(default_factory=list)
     adjustments: list[BalanceAdjustmentResponse] = Field(default_factory=list)

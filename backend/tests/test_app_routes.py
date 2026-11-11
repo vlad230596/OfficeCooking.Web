@@ -29,6 +29,9 @@ def test_application_exposes_the_complete_v1_route_surface() -> None:
         "/api/v1/templates/{template_id}",
         "/api/v1/cooks",
         "/api/v1/cooks/{cook_id}",
+        "/api/v1/cooks/{cook_id}/settlements",
+        "/api/v1/cooks/{cook_id}/preparation",
+        "/api/v1/templates/{template_id}/preparation",
         "/api/v1/cooks/calculate-selection",
         "/api/v1/cooks/preview",
         "/api/v1/calculations/expressions/preview",
@@ -52,6 +55,17 @@ def test_v1_api_requires_authentication_but_health_remains_public() -> None:
     app = create_app(_settings())
     with TestClient(app) as client:
         protected = client.get("/api/v1/users")
+        assert (
+            client.get("/api/v1/cooks/00000000-0000-0000-0000-000000000001/settlements").status_code
+            == 401
+        )
+        assert (
+            client.put(
+                "/api/v1/cooks/00000000-0000-0000-0000-000000000001/settlements",
+                json={"expectedVersion": 1, "purchases": []},
+            ).status_code
+            == 401
+        )
         health = client.get("/health")
 
     assert protected.status_code == 401

@@ -1,14 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { createUserAdjustment, createUserPayment, deleteUserPayment, getUserBalance, listBalances } from '../api'
 import type { BalancePayment, IsoDate, UserBalance } from '../api'
 import { useAuth } from '../auth'
 import { EmptyState, ErrorState, LoadingState } from '../components/AsyncState'
 import { PageIntro } from '../components/PageIntro'
 import { formatWholeAmount } from '../format'
+import { draftKey, readDraft, removeDraft, writeDraft } from '../drafts'
 import './BalancesPage.css'
 
 const FIRST_BALANCE_DATE: IsoDate = '2023-06-05'
+
+type PaymentDraft = { date: IsoDate; amount: string; typeId: string; comment: string }
+type AdjustmentDraft = { date: IsoDate; amount: string; reason: string }
+const isPaymentDraft = (value: unknown): value is PaymentDraft => {
+  const draft = value as PaymentDraft | null
+  return !!draft && typeof draft.date === 'string' && typeof draft.amount === 'string' && typeof draft.typeId === 'string' && typeof draft.comment === 'string'
+}
+const isAdjustmentDraft = (value: unknown): value is AdjustmentDraft => {
+  const draft = value as AdjustmentDraft | null
+  return !!draft && typeof draft.date === 'string' && typeof draft.amount === 'string' && typeof draft.reason === 'string'
+}
 
 function localToday(): IsoDate {
   const today = new Date()
@@ -23,7 +35,12 @@ const amount = formatWholeAmount
 const displayDate = (value: IsoDate) => new Date(`${value}T00:00:00`).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' })
 
 export function BalancesPage() {
-  const { hasRole } = useAuth()
+  const { user } = useAuth()
+  return user ? <BalancesWorkspace key={user.id} /> : <LoadingState label="Загрузка балансов…" />
+}
+
+function BalancesWorkspace() {
+  const { hasRole, user: account } = useAuth()
   const queryClient = useQueryClient()
   const [dateFrom, setDateFrom] = useState<IsoDate>(FIRST_BALANCE_DATE)
   const [dateTo, setDateTo] = useState<IsoDate>(localToday)
@@ -38,6 +55,21 @@ export function BalancesPage() {
   const [adjustmentDate, setAdjustmentDate] = useState<IsoDate>(localToday)
   const [adjustmentAmount, setAdjustmentAmount] = useState('')
   const [adjustmentReason, setAdjustmentReason] = useState('')
+  const [draftStorageFailed, setDraftStorageFailed] = useState(false)
+  const paymentDraftKey = (userId: string) => draftKey(account!.id, `payment:${userId}`)
+  const adjustmentDraftKey = (userId: string) => draftKey(account!.id, `adjustment:${userId}:${dateFrom}:${dateTo}`)
+  useEffect(() => {
+    if (!account || !selectedUser || !paymentFormOpen) return
+    setDraftStorageFailed(!writeDraft(draftKey(account.id, `payment:${selectedUser.userId}`), {
+      date: paymentDate, amount: paymentAmount, typeId: paymentTypeId, comment: paymentComment,
+    } satisfies PaymentDraft))
+  }, [account, selectedUser, paymentFormOpen, paymentDate, paymentAmount, paymentTypeId, paymentComment])
+  useEffect(() => {
+    if (!account || !selectedUser || !adjustmentOpen) return
+    setDraftStorageFailed(!writeDraft(draftKey(account.id, `adjustment:${selectedUser.userId}:${dateFrom}:${dateTo}`), {
+      date: adjustmentDate, amount: adjustmentAmount, reason: adjustmentReason,
+    } satisfies AdjustmentDraft))
+  }, [account, selectedUser, adjustmentOpen, dateFrom, dateTo, adjustmentDate, adjustmentAmount, adjustmentReason])
   const rangeIsValid = /^\d{4}-\d{2}-\d{2}$/.test(dateFrom)
     && /^\d{4}-\d{2}-\d{2}$/.test(dateTo)
     && dateFrom <= dateTo
@@ -64,8 +96,9 @@ export function BalancesPage() {
   })
   const createPayment = useMutation({
     mutationFn: ({ userId, paymentDate, amount, paymentTypeId, comment }: { userId: string; paymentDate: IsoDate; amount: number; paymentTypeId: string; comment: string }) => createUserPayment(userId, { paymentDate, amount, paymentTypeId, comment }),
-    onSuccess: async () => {
+    onSuccess: async (_result, variables) => {
       setPaymentFormOpen(false)
+      if (account) removeDraft(paymentDraftKey(variables.userId))
       setPaymentAmount('')
       setPaymentComment('')
       await Promise.all([
@@ -76,8 +109,9 @@ export function BalancesPage() {
   })
   const createAdjustment = useMutation({
     mutationFn: ({ userId, value, reason }: { userId: string; value: number; reason: string }) => createUserAdjustment(userId, { balanceDateFrom: dateFrom, balanceDateTo: dateTo, adjustmentDate, expectedBalance: selectedUser!.cumulativeBalance, amount: value, reason }),
-    onSuccess: async () => {
+    onSuccess: async (_result, variables) => {
       setAdjustmentOpen(false)
+      if (account) removeDraft(adjustmentDraftKey(variables.userId))
       setAdjustmentAmount('')
       setAdjustmentReason('')
       await Promise.all([
@@ -93,9 +127,14 @@ export function BalancesPage() {
   }
 
   function openPaymentForm() {
+    if (!selectedUser || !account) return
     const types = detailQuery.data?.paymentTypes ?? []
-    setPaymentTypeId(types.find(type => type.name === 'Alpha')?.id ?? types[0]?.id ?? '')
-    setPaymentDate(localToday())
+    const draft = readDraft(paymentDraftKey(selectedUser.userId), isPaymentDraft)
+    setPaymentTypeId(draft?.typeId ?? types.find(type => type.name === 'Alpha')?.id ?? types[0]?.id ?? '')
+    setPaymentDate(draft?.date ?? localToday())
+    setPaymentAmount(draft?.amount ?? '')
+    setPaymentComment(draft?.comment ?? '')
+    setAdjustmentOpen(false)
     setPaymentFormOpen(true)
   }
 
@@ -107,12 +146,13 @@ export function BalancesPage() {
   }
 
   function openAdjustmentForm() {
-    if (!selectedUser) return
+    if (!selectedUser || !account) return
+    const draft = readDraft(adjustmentDraftKey(selectedUser.userId), isAdjustmentDraft)
     setPaymentFormOpen(false)
     setAdjustmentOpen(true)
-    setAdjustmentDate(dateTo)
-    setAdjustmentAmount('')
-    setAdjustmentReason('')
+    setAdjustmentDate(draft?.date ?? dateTo)
+    setAdjustmentAmount(draft?.amount ?? '')
+    setAdjustmentReason(draft?.reason ?? '')
   }
 
   function submitAdjustment(event: FormEvent) {
@@ -132,10 +172,10 @@ export function BalancesPage() {
       />
       <div className="filter-bar balances-page__filters" aria-label="Фильтры балансов">
         <label htmlFor="balance-date-from">С даты
-          <input id="balance-date-from" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value as IsoDate)} />
+          <input id="balance-date-from" disabled={createPayment.isPending || createAdjustment.isPending} type="date" value={dateFrom} onChange={(event) => { setAdjustmentOpen(false); setDateFrom(event.target.value as IsoDate) }} />
         </label>
         <label htmlFor="balance-date-to">По дату
-          <input id="balance-date-to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value as IsoDate)} />
+          <input id="balance-date-to" disabled={createPayment.isPending || createAdjustment.isPending} type="date" value={dateTo} onChange={(event) => { setAdjustmentOpen(false); setDateTo(event.target.value as IsoDate) }} />
         </label>
         <label className="checkbox" htmlFor="balance-non-zero">
           <input id="balance-non-zero" type="checkbox" checked={nonZeroOnly} onChange={(event) => setNonZeroOnly(event.target.checked)} />
@@ -158,11 +198,11 @@ export function BalancesPage() {
             </div>
             <div className="balances-table-wrap">
               <table className="balances-table">
-                <thead><tr><th scope="col">Участник</th><th scope="col">Внесено</th><th scope="col">Начислено</th><th scope="col">Готовок</th><th scope="col">Баланс</th></tr></thead>
+                <thead><tr><th scope="col">Участник</th><th scope="col">Внесено</th><th scope="col">Начислено</th><th scope="col">Купил за свои / вернули</th><th scope="col">Готовок</th><th scope="col">Баланс</th></tr></thead>
                 <tbody>{balancesQuery.data.items.map((user) => (
                   <tr key={user.userId} data-selected={selectedUser?.userId === user.userId}>
-                    <th scope="row"><button type="button" onClick={() => { setSelectedUser(user); setPaymentFormOpen(false); setAdjustmentOpen(false) }}>{user.userName}</button></th>
-                    <td>{amount(user.positive)}</td><td>{amount(user.negative)}</td><td>{user.cooksCount}</td>
+                    <th scope="row"><button type="button" disabled={createPayment.isPending || createAdjustment.isPending} onClick={() => { setSelectedUser(user); setPaymentFormOpen(false); setAdjustmentOpen(false) }}>{user.userName}</button></th>
+                    <td>{amount(user.positive)}</td><td>{amount(user.negative)}</td><td><span className="balance-purchase-total">+{amount(user.purchasesTotal ?? 0)}</span><small className="balance-return-total">−{amount(user.reimbursementsTotal ?? 0)}</small>{(user.separateOwed ?? 0) > 0 && <small className="balance-separate-owed">К возврату: {amount(user.separateOwed!)}</small>}</td><td>{user.cooksCount}</td>
                     <td className={user.cumulativeBalance < 0 ? 'amount--negative' : 'amount--positive'}>{amount(user.cumulativeBalance)}</td>
                   </tr>
                 ))}</tbody>
@@ -171,9 +211,10 @@ export function BalancesPage() {
           </section>
 
           <section className="balances-panel balances-detail" aria-labelledby="balance-detail-title">
-            <div className="balances-panel__heading"><div><span className="eyebrow">Расчётные недели</span><h2 id="balance-detail-title">{selectedUser?.userName ?? 'Выберите участника'}</h2></div>{selectedUser && hasRole('editor') && <div className="balance-actions"><button className="button button--secondary add-payment-button" type="button" onClick={() => paymentFormOpen ? setPaymentFormOpen(false) : openPaymentForm()}>{paymentFormOpen ? 'Отмена' : 'Добавить платёж'}</button><button className="button button--secondary" type="button" onClick={() => adjustmentOpen ? setAdjustmentOpen(false) : openAdjustmentForm()}>{adjustmentOpen ? 'Отмена' : 'Корректировка'}</button></div>}</div>
-            {paymentFormOpen && selectedUser && detailQuery.data && <form className="manual-payment" onSubmit={submitPayment}>
+            <div className="balances-panel__heading"><div><span className="eyebrow">Расчётные недели</span><h2 id="balance-detail-title">{selectedUser?.userName ?? 'Выберите участника'}</h2></div>{selectedUser && hasRole('editor') && <div className="balance-actions" inert={createPayment.isPending || createAdjustment.isPending}><button className="button button--secondary add-payment-button" type="button" onClick={() => paymentFormOpen ? setPaymentFormOpen(false) : openPaymentForm()}>{paymentFormOpen ? 'Отмена' : 'Добавить платёж'}</button><button className="button button--secondary" type="button" onClick={() => adjustmentOpen ? setAdjustmentOpen(false) : openAdjustmentForm()}>{adjustmentOpen ? 'Отмена' : 'Корректировка'}</button></div>}</div>
+            {paymentFormOpen && selectedUser && detailQuery.data && <form className="manual-payment" inert={createPayment.isPending} onSubmit={submitPayment}>
               <strong>Полученный платёж · {selectedUser.userName}</strong>
+              <p role="status">{draftStorageFailed ? 'Не удалось сохранить черновик в браузере.' : 'Черновик сохраняется в этом браузере автоматически.'}</p>
               <label>Дата получения<input required type="date" value={paymentDate} onChange={event => setPaymentDate(event.target.value as IsoDate)} /></label>
               <label>Сумма<input required min="1" step="1" inputMode="numeric" type="number" value={paymentAmount} onChange={event => setPaymentAmount(event.target.value)} /></label>
               <label>Тип<select required value={paymentTypeId} onChange={event => setPaymentTypeId(event.target.value)}>{detailQuery.data.paymentTypes.map(type => <option value={type.id} key={type.id}>{type.name}</option>)}</select></label>
@@ -181,8 +222,9 @@ export function BalancesPage() {
               <button className="button" disabled={createPayment.isPending || !paymentTypeId || !Number.isInteger(Number(paymentAmount)) || Number(paymentAmount) <= 0} type="submit">{createPayment.isPending ? 'Добавляем…' : 'Добавить в баланс'}</button>
               {createPayment.isError && <p className="form-error">Не удалось добавить платёж: {createPayment.error.message}</p>}
             </form>}
-            {adjustmentOpen && selectedUser && <form className="manual-payment" onSubmit={submitAdjustment}>
+            {adjustmentOpen && selectedUser && <form className="manual-payment" inert={createAdjustment.isPending} onSubmit={submitAdjustment}>
               <strong>Корректировка · {selectedUser.userName} · текущий баланс за период: {amount(selectedUser.cumulativeBalance)}</strong>
+              <p role="status">{draftStorageFailed ? 'Не удалось сохранить черновик в браузере.' : 'Черновик сохраняется в этом браузере автоматически.'}</p>
               <label>Дата<input required type="date" min={dateFrom} max={dateTo} value={adjustmentDate} onChange={event => setAdjustmentDate(event.target.value as IsoDate)} /></label>
               <label>Сумма<input required step="1" inputMode="numeric" type="number" value={adjustmentAmount} onChange={event => setAdjustmentAmount(event.target.value)} placeholder="Например, -155 или 200" /></label>
               <label className="manual-payment__comment">Причина<input required maxLength={1000} value={adjustmentReason} onChange={event => setAdjustmentReason(event.target.value)} placeholder="Например: закрытие старой погрешности" /></label>
@@ -205,10 +247,14 @@ export function BalancesPage() {
                     <div className="week-card__summary">
                       <div className="summary-paid"><small>Получено в эту неделю</small><strong>+{amount(week.positive)}</strong></div>
                       <div className="summary-charged"><small>Готовки этой недели</small><strong>−{amount(week.negative)}</strong></div>
+                      {(week.purchasesTotal ?? 0) > 0 && <div className="summary-paid"><small>Купил за свои</small><strong>+{amount(week.purchasesTotal ?? 0)}</strong></div>}
+                      {(week.reimbursementsTotal ?? 0) > 0 && <div className="summary-charged"><small>Вернули участнику</small><strong>−{amount(week.reimbursementsTotal ?? 0)}</strong></div>}
+                      {(week.separateOwed ?? 0) > 0 && <div className="summary-refund"><small>Осталось вернуть отдельно</small><strong>{amount(week.separateOwed!)}</strong></div>}
                       {week.adjustment !== 0 && <div><small>Корректировка</small><strong>{week.adjustment > 0 ? '+' : ''}{amount(week.adjustment)}</strong></div>}
                       <div className={week.weeklyDelta < 0 ? 'summary-delta is-negative' : 'summary-delta is-positive'}><small>Изменение баланса</small><strong>{week.weeklyDelta > 0 ? '+' : ''}{amount(week.weeklyDelta)}</strong></div>
                     </div>
                     <div className="week-card__activity">
+                      {(week.settlementEvents?.length ?? 0) > 0 && <section><h4>Покупки и возвраты <span>{week.settlementEvents!.length}</span></h4>{week.settlementEvents!.map(item => <div className="activity-row" key={item.id}><span><time>{displayDate(item.eventDate)}</time>{item.kind === 'purchase' ? 'Купил за свои' : 'Организатор вернул'}<small>{item.description}</small>{item.kind === 'purchase' && item.mode && <small>{item.mode === 'offset' ? 'Зачёт оплаты' : (item.separateOwed ?? 0) > 0 ? `Осталось вернуть отдельно: ${amount(item.separateOwed!)}` : 'Отдельный возврат выполнен'}</small>}</span><strong className={item.kind === 'purchase' ? 'activity-payment' : 'activity-charge'}>{item.kind === 'purchase' ? '+' : '−'}{amount(item.amount)}</strong></div>)}</section>}
                       <section><h4>Начисления за готовки <span>{week.cooks.length}</span></h4>
                         {week.cooks.length === 0 ? <p>Начислений не было</p> : week.cooks.map(cook => <div className="activity-row" key={cook.id}><span><time>{displayDate(cook.cookDate)}</time>{cook.title}</span><strong className="activity-charge">−{amount(cook.amount)}</strong></div>)}
                       </section>

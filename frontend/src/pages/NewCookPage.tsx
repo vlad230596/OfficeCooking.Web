@@ -25,12 +25,38 @@ import type {
 } from '../api'
 import { ErrorState, LoadingState } from '../components/AsyncState'
 import { PageIntro } from '../components/PageIntro'
+import { SettlementEditor } from '../components/SettlementEditor'
+import { CookPreparationEditor } from '../components/PreparationEditor'
 import { formatQuantity, formatWholeAmount } from '../format'
 import { useAuth } from '../auth'
+import { draftKey, readDraft, removeDraft, writeDraft } from '../drafts'
 import './NewCookPage.css'
 
 type MemberDraft = { id?: UUID; userId: UUID; active: boolean; selectedVotes: UUID[] }
 type ExpenseDraft = { id?: UUID; productName: string | null; expression: string; enabled?: boolean }
+
+type CookDraft = {
+  cookDate: IsoDate; templateId: UUID; members: MemberDraft[]; expenses: ExpenseDraft[]
+  showDisabledUsers: boolean; showParticipantsOnly: boolean; baseVersion: number | null
+  templateVotes?: CookVoteVariant[]
+}
+
+function isCookDraft(value: unknown): value is CookDraft {
+  if (!value || typeof value !== 'object') return false
+  const draft = value as CookDraft
+  return typeof draft.cookDate === 'string' && typeof draft.templateId === 'string'
+    && typeof draft.showDisabledUsers === 'boolean' && typeof draft.showParticipantsOnly === 'boolean'
+    && (draft.baseVersion === null || (Number.isInteger(draft.baseVersion) && draft.baseVersion! > 0))
+    && (draft.templateVotes === undefined || (Array.isArray(draft.templateVotes) && draft.templateVotes.every(vote => vote
+      && typeof vote.id === 'string' && typeof vote.name === 'string' && Number.isInteger(vote.position) && typeof vote.value === 'number')))
+    && Array.isArray(draft.members) && draft.members.every(member => member && typeof member.userId === 'string'
+      && (member.id === undefined || typeof member.id === 'string') && typeof member.active === 'boolean'
+      && Array.isArray(member.selectedVotes) && member.selectedVotes.every(id => typeof id === 'string'))
+    && Array.isArray(draft.expenses) && draft.expenses.every(expense => expense
+      && (expense.id === undefined || typeof expense.id === 'string')
+      && (expense.productName === null || typeof expense.productName === 'string') && typeof expense.expression === 'string'
+      && (expense.enabled === undefined || typeof expense.enabled === 'boolean'))
+}
 
 const today = (): IsoDate => {
   const value = new Date()
@@ -54,18 +80,33 @@ const errorMessage = (error: unknown) => error instanceof Error ? error.message 
 
 export function NewCookPage() {
   const { cookId } = useParams<{ cookId?: UUID }>()
+  const { user } = useAuth()
+  if (!user) return <LoadingState label="Загрузка редактора готовки…" />
+  return <CookEditor key={`${user.id}:${cookId ?? 'new'}`} accountId={user.id} />
+}
+
+function CookEditor({ accountId }: { accountId: UUID }) {
+  const { cookId } = useParams<{ cookId?: UUID }>()
   const isEditing = Boolean(cookId)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { hasRole } = useAuth()
+  const storageKey = draftKey(accountId, `cook:${cookId ?? 'new'}`)
+  const [restoredDraft] = useState(() => readDraft(storageKey, isCookDraft))
+  const [draftRestored, setDraftRestored] = useState(Boolean(restoredDraft))
+  const [storageFailed, setStorageFailed] = useState(false)
+  const [baseVersion, setBaseVersion] = useState<number | null>(restoredDraft?.baseVersion ?? null)
+  const baselineCook = useRef<CookDetail | null>(null)
+  const draftSaved = useRef(false)
   const initializedCook = useRef<UUID | null>(null)
-  const initializedTemplate = useRef<UUID | null>(null)
-  const [cookDate, setCookDate] = useState<IsoDate>(today)
-  const [templateId, setTemplateId] = useState<UUID>('')
-  const [showDisabledUsers, setShowDisabledUsers] = useState(false)
-  const [showParticipantsOnly, setShowParticipantsOnly] = useState(true)
-  const [members, setMembers] = useState<MemberDraft[]>([])
-  const [expenses, setExpenses] = useState<ExpenseDraft[]>([])
+  const initializedTemplate = useRef<UUID | null>(restoredDraft?.templateId ?? null)
+  const draftTemplateVotes = useRef<CookVoteVariant[] | null>(restoredDraft?.templateVotes ?? null)
+  const [cookDate, setCookDate] = useState<IsoDate>(restoredDraft?.cookDate ?? today)
+  const [templateId, setTemplateId] = useState<UUID>(restoredDraft?.templateId ?? '')
+  const [showDisabledUsers, setShowDisabledUsers] = useState(restoredDraft?.showDisabledUsers ?? false)
+  const [showParticipantsOnly, setShowParticipantsOnly] = useState(restoredDraft?.showParticipantsOnly ?? true)
+  const [members, setMembers] = useState<MemberDraft[]>(restoredDraft?.members ?? [])
+  const [expenses, setExpenses] = useState<ExpenseDraft[]>(restoredDraft?.expenses ?? [])
   const [submitMessage, setSubmitMessage] = useState<string | null>(null)
   const [templateMessage, setTemplateMessage] = useState<string | null>(null)
 
@@ -107,10 +148,7 @@ export function NewCookPage() {
 
   useEffect(() => {
     if (!usersQuery.data) return
-    const visibleUsers = isEditing || showDisabledUsers
-      ? usersQuery.data
-      : usersQuery.data.filter((user) => user.enabled)
-    setMembers((current) => visibleUsers.map((user) => current.find((item) => item.userId === user.id)
+    setMembers((current) => usersQuery.data.map((user) => current.find((item) => item.userId === user.id)
       ?? { userId: user.id, active: false, selectedVotes: [] }))
   }, [isEditing, showDisabledUsers, usersQuery.data])
 
@@ -118,6 +156,7 @@ export function NewCookPage() {
     const template = templateQuery.data
     if (isEditing || !template || initializedTemplate.current === template.id) return
     initializedTemplate.current = template.id
+    draftTemplateVotes.current = template.voteVariants
     setMembers((current) => current.map((member) => ({ ...member, selectedVotes: [] })))
     setExpenses(template.ingredients.map(toExpenseDraft))
   }, [isEditing, templateQuery.data])
@@ -126,6 +165,9 @@ export function NewCookPage() {
     const cook = cookQuery.data
     if (!cook || initializedCook.current === cook.id) return
     initializedCook.current = cook.id
+    if (!restoredDraft || restoredDraft.baseVersion === cook.rowVersion) baselineCook.current = cook
+    if (restoredDraft) return
+    setBaseVersion(cook.rowVersion)
     setCookDate(cook.cookDate)
     setTemplateId(cook.templateId ?? '')
     setMembers(mergeCookMembers(cook, usersQuery.data ?? []))
@@ -134,7 +176,41 @@ export function NewCookPage() {
       productName: item.productName,
       expression: item.expression ?? '',
     })))
-  }, [cookQuery.data, usersQuery.data])
+  }, [cookQuery.data, usersQuery.data, restoredDraft])
+
+  useEffect(() => {
+    const current = cookQuery.data
+    const baseline = baselineCook.current
+    if (!current || !baseline || current.rowVersion === baseVersion) return
+    // A separately saved section may bump the cook version. Only advance an untouched editor.
+    const original = makeUpdateRequest(baseline, baseline.cookDate, mergeCookMembers(baseline, usersQuery.data ?? []),
+      baseline.productPrices.map(item => ({ id: item.id, productName: item.productName, expression: item.expression ?? '' })))
+    const edited = makeUpdateRequest(baseline, cookDate, members, expenses)
+    if (JSON.stringify(original) !== JSON.stringify(edited)) return
+    baselineCook.current = current
+    setBaseVersion(current.rowVersion)
+    setCookDate(current.cookDate)
+    setTemplateId(current.templateId ?? '')
+    setMembers(mergeCookMembers(current, usersQuery.data ?? []))
+    setExpenses(current.productPrices.map(item => ({ id: item.id, productName: item.productName, expression: item.expression ?? '' })))
+  }, [cookQuery.data, baseVersion, cookDate, members, expenses, usersQuery.data])
+
+  useEffect(() => {
+    if (draftSaved.current || !usersQuery.data || (!isEditing && !templateId)
+      || (isEditing ? baseVersion === null : initializedTemplate.current !== templateId)) return
+    const cook = baselineCook.current
+    const untouched = isEditing && cook
+      ? JSON.stringify(makeUpdateRequest(cook, cookDate, members, expenses)) === JSON.stringify(makeUpdateRequest(cook, cook.cookDate, mergeCookMembers(cook, usersQuery.data),
+        cook.productPrices.map(item => ({ id: item.id, productName: item.productName, expression: item.expression ?? '' }))))
+      : !isEditing && cookDate === today() && templateId === templatesQuery.data?.[0]?.id
+        && !showDisabledUsers && showParticipantsOnly && members.every(member => !member.active && member.selectedVotes.length === 0)
+        && JSON.stringify(expenses) === JSON.stringify(templateQuery.data?.ingredients.map(toExpenseDraft) ?? [])
+    if (untouched) { setStorageFailed(!removeDraft(storageKey)); return }
+    setStorageFailed(!writeDraft(storageKey, {
+      cookDate, templateId, members, expenses, showDisabledUsers, showParticipantsOnly, baseVersion,
+      templateVotes: draftTemplateVotes.current ?? templateQuery.data?.voteVariants,
+    } satisfies CookDraft))
+  }, [storageKey, cookDate, templateId, members, expenses, showDisabledUsers, showParticipantsOnly, baseVersion, isEditing, usersQuery.data, templatesQuery.data, templateQuery.data])
 
   const voteVariants = isEditing ? cookQuery.data?.voteVariants ?? [] : templateQuery.data?.voteVariants ?? []
   const debouncedExpressions = useDebouncedExpressions(expenses)
@@ -186,14 +262,15 @@ export function NewCookPage() {
     [cookQuery.data?.members],
   )
   const displayedMembers = useMemo(
-    () => isEditing && showParticipantsOnly ? participatingMembers(members) : members,
-    [isEditing, members, showParticipantsOnly],
+    () => isEditing ? showParticipantsOnly ? participatingMembers(members) : members
+      : members.filter(member => showDisabledUsers || usersQuery.data?.find(user => user.id === member.userId)?.enabled || member.selectedVotes.length > 0),
+    [isEditing, members, showParticipantsOnly, showDisabledUsers, usersQuery.data],
   )
   const currentUpdateRequest = useMemo(
     () => cookQuery.data
-      ? makeUpdateRequest(cookQuery.data, cookDate, members, expenses)
+      ? { ...makeUpdateRequest(cookQuery.data, cookDate, members, expenses), expectedVersion: baseVersion ?? cookQuery.data.rowVersion }
       : null,
-    [cookDate, cookQuery.data, expenses, members],
+    [cookDate, cookQuery.data, expenses, members, baseVersion],
   )
   const initialUpdateRequest = useMemo(() => {
     const cook = cookQuery.data
@@ -245,7 +322,7 @@ export function NewCookPage() {
     mutationFn: () => isEditing
       ? updateCook(cookId!, currentUpdateRequest!)
       : createCook(makeCreateRequest(cookDate, templateId, members, expenses, voteVariants)),
-    onSuccess: () => navigate('/cooks'),
+    onSuccess: () => { draftSaved.current = true; removeDraft(storageKey); navigate('/cooks') },
     onError: (error) => {
       if (error instanceof ApiError && error.status === 409) {
         if (error.code === 'cook_date_conflict') {
@@ -263,6 +340,9 @@ export function NewCookPage() {
   const loading = usersQuery.isPending || templatesQuery.isPending
     || (isEditing ? cookQuery.isPending : Boolean(templateId) && templateQuery.isPending)
   const loadingError = usersQuery.error || templatesQuery.error || cookQuery.error || templateQuery.error
+  const staleDraft = isEditing && baseVersion !== null && cookQuery.data && baseVersion !== cookQuery.data.rowVersion
+  const staleTemplate = !isEditing && draftTemplateVotes.current && templateQuery.data
+    && JSON.stringify(draftTemplateVotes.current) !== JSON.stringify(templateQuery.data.voteVariants)
   const canSubmit = Boolean(cookDate) && (isEditing ? Boolean(cookQuery.data) : Boolean(templateId))
     && members.some((member) => member.selectedVotes.length > 0)
     && previewsReady
@@ -271,6 +351,8 @@ export function NewCookPage() {
     && !conflictingCook
     && !dateAvailabilityQuery.isPending
     && !mutation.isPending
+    && !staleDraft
+    && !staleTemplate
 
   if (loading || loadingError) return (
     <section className="cook-editor">
@@ -293,7 +375,28 @@ export function NewCookPage() {
         description="Дата, участники, варианты порций и Legacy-выражения расходов."
         actions={<button className="button" type="submit" form="cook-form" disabled={!canSubmit}>{mutation.isPending ? 'Сохранение…' : 'Сохранить'}</button>}
       />
-      <form id="cook-form" onSubmit={(event) => { event.preventDefault(); setSubmitMessage(null); mutation.mutate() }}>
+      {isEditing && <nav className="cook-section-nav" aria-label="Разделы готовки"><a href="#cook-form">Состав готовки</a><a href="#cook-settlements">Взаиморасчёты</a><a href="#cook-preparation">План приготовления</a></nav>}
+      <form id="cook-form" inert={mutation.isPending} onSubmit={(event) => { event.preventDefault(); if (canSubmit) { setSubmitMessage(null); mutation.mutate() } }}>
+        <div className="editor-mode-note" role="status">
+          <span>{storageFailed ? 'Браузер не разрешил сохранить черновик. Не закрывайте страницу до сохранения готовки.' : draftRestored ? 'Черновик восстановлен. Изменения сохраняются в этом браузере автоматически.' : 'Черновик сохраняется в этом браузере автоматически.'}</span>
+          {(draftRestored || staleDraft || staleTemplate) && <button type="button" onClick={() => {
+            if (isEditing && cookQuery.data) {
+              const cook = cookQuery.data
+              baselineCook.current = cook
+              setCookDate(cook.cookDate); setTemplateId(cook.templateId ?? '')
+              setMembers(mergeCookMembers(cook, usersQuery.data ?? []))
+              setExpenses(cook.productPrices.map(item => ({ id: item.id, productName: item.productName, expression: item.expression ?? '' })))
+              setBaseVersion(cook.rowVersion)
+            } else {
+              draftTemplateVotes.current = templateQuery.data?.voteVariants ?? null
+              setCookDate(today()); setMembers(current => current.map(member => ({ ...member, active: false, selectedVotes: [] })))
+              setExpenses(templateQuery.data?.ingredients.map(toExpenseDraft) ?? [])
+            }
+            setDraftRestored(false); setSubmitMessage(null); removeDraft(storageKey)
+          }}>Сбросить черновик</button>}
+        </div>
+        {staleDraft && <div className="editor-alert" role="alert">Сохранённая готовка изменилась после создания черновика. Ваши данные восстановлены для сверки. Чтобы загрузить актуальную готовку, сбросьте черновик.</div>}
+        {staleTemplate && <div className="editor-alert" role="alert">Варианты порций блюда изменились после создания черновика. Данные сохранены для сверки. Сбросьте черновик или выберите блюдо заново перед сохранением.</div>}
         {isEditing && cookQuery.data && (
           <div className="editor-mode-note" role="note">
             <strong>Редактирование сохранённой готовки</strong>
@@ -378,6 +481,9 @@ export function NewCookPage() {
         </article>
         <div className="editor-submit"><button className="button" type="submit" disabled={!canSubmit}>{mutation.isPending ? 'Сохранение…' : 'Сохранить готовку'}</button></div>
       </form>
+      {isEditing && cookQuery.data && <SettlementEditor cook={cookQuery.data} />}
+      {isEditing && cookQuery.data && <CookPreparationEditor cookId={cookQuery.data.id} rowVersion={cookQuery.data.rowVersion} members={cookQuery.data.members.map(member => ({ userId: member.userId, userName: member.userName }))} />}
+      {!isEditing && <p className="editor-mode-note">После сохранения откройте готовку, чтобы добавить покупки за свои деньги и индивидуальные пожелания к приготовлению.</p>}
     </section>
   )
 }

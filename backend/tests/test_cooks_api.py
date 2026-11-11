@@ -251,9 +251,7 @@ async def test_draft_preview_returns_server_side_legacy_member_charges(
         "/api/v1/cooks/preview",
         json={
             "cookId": None,
-            "voteVariants": [
-                {"id": str(VARIANT_ID), "position": 0, "value": 1.0}
-            ],
+            "voteVariants": [{"id": str(VARIANT_ID), "position": 0, "value": 1.0}],
             "members": [
                 {
                     "position": 0,
@@ -262,9 +260,7 @@ async def test_draft_preview_returns_server_side_legacy_member_charges(
                     "cookVoteVariantIds": [str(VARIANT_ID)],
                 }
             ],
-            "productPrices": [
-                {"position": 0, "productName": "Мясо", "expression": "2*95"}
-            ],
+            "productPrices": [{"position": 0, "productName": "Мясо", "expression": "2*95"}],
         },
     )
 
@@ -384,7 +380,8 @@ def test_preview_is_pure_and_member_row_builder_omits_members_without_votes() ->
 
 
 @pytest.mark.asyncio
-async def test_create_flushes_snapshot_parents_before_member_votes() -> None:
+async def test_create_flushes_snapshot_parents_before_member_votes(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.preparation.initialize_preparation", AsyncMock())
     template = CookTemplate(
         id=TEMPLATE_ID,
         legacy_name="Шаурма",
@@ -446,9 +443,7 @@ async def test_create_flushes_snapshot_parents_before_member_votes() -> None:
                     "voteVariantPositions": [0],
                 }
             ],
-            "productPrices": [
-                {"position": 0, "productName": "Продукты", "expression": "100"}
-            ],
+            "productPrices": [{"position": 0, "productName": "Продукты", "expression": "100"}],
         }
     )
 
@@ -514,9 +509,7 @@ async def test_saved_cook_uses_member_discount_snapshot_after_user_changes() -> 
         calculation_version=1,
         row_version=1,
     )
-    variants = [
-        CookVoteVariant(id=VARIANT_ID, cook_id=COOK_ID, position=0, name="1", value=1.0)
-    ]
+    variants = [CookVoteVariant(id=VARIANT_ID, cook_id=COOK_ID, position=0, name="1", value=1.0)]
     members = [
         CookMember(
             id=MEMBER_ID,
@@ -602,7 +595,13 @@ async def test_saved_cook_uses_member_discount_snapshot_after_user_changes() -> 
 
 
 @pytest.mark.asyncio
-async def test_selection_service_keeps_nonpositive_charges_only_out_of_legacy_view() -> None:
+async def test_selection_service_keeps_nonpositive_charges_only_out_of_legacy_view(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.settlements.get_settlements",
+        AsyncMock(return_value=SimpleNamespace(purchases=[])),
+    )
     second_user_id = UUID("77777777-7777-4777-8777-777777777777")
     first_cook = Cook(
         id=COOK_ID,

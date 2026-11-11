@@ -200,6 +200,11 @@ function CalculationResult({ result }: { result: CalculateSelectionResponse }) {
       {result.positiveCharges.length === 0
         ? <p className="cooks-result__empty">Положительных начислений нет.</p>
         : <pre className="cooks-result__copy" aria-label="Таблица начислений" tabIndex={0}>{copyText}</pre>}
+      {((result.negativeCharges?.length ?? 0) > 0 || (result.separateOwed?.length ?? 0) > 0) && <div className="cooks-refunds" aria-label="Организатор возвращает">
+        <h3>Организатор возвращает</h3>
+        {(result.negativeCharges ?? []).map(item => <div className="cooks-refund-card" key={`offset-${item.userId}`}><span>{item.userName}<small>Остаток после зачёта покупки</small></span><strong>{formatWholeAmount(-item.charge)}</strong></div>)}
+        {(result.separateOwed ?? []).map(item => <div className="cooks-refund-card" key={`separate-${item.userId}`}><span>{item.userName}<small>Отдельным переводом</small></span><strong>{formatWholeAmount(item.charge)}</strong></div>)}
+      </div>}
     </section>
   )
 }

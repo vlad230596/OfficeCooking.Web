@@ -280,6 +280,8 @@ class CalculateSelectionResponse(ApiModel):
     total: int
     positive_charges: list[UserChargeResponse]
     positive_total: int = Field(ge=0)
+    negative_charges: list[UserChargeResponse] = Field(default_factory=list)
+    separate_owed: list[UserChargeResponse] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_totals_and_positive_view(self) -> CalculateSelectionResponse:

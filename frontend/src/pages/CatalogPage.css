@@ -2,6 +2,9 @@
 .catalog-tabs button { min-height: 32px; padding: 5px 15px; border: 0; border-radius: 7px; color: var(--muted); background: transparent; font-weight: 720; cursor: pointer; }
 .catalog-tabs button.is-active { color: var(--accent-dark); background: #f2dfd5; }
 .catalog-workspace { display: grid; grid-template-columns: minmax(220px, 310px) minmax(0, 1fr); gap: 12px; align-items: start; }
+.catalog-preparation { grid-column: 2; min-width: 0; }
+.catalog-preparation .preparation { margin-top: 0; }
+@media (max-width: 767px) { .catalog-preparation { grid-column: 1 / -1; } }
 .catalog-list, .catalog-editor { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
 .catalog-list { position: sticky; top: 68px; overflow: hidden; }
 .catalog-list__heading { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--line); background: #f1ece2; }

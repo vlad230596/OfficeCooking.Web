@@ -5,6 +5,10 @@ from sqlalchemy.schema import CreateTable
 from app.models import Base
 
 EXPECTED_TABLES = {
+    "cook_purchases",
+    "cook_preparations",
+    "template_preparations",
+    "cook_reimbursements",
     "balance_adjustments",
     "zenmoney_account_configs",
     "zenmoney_settings",

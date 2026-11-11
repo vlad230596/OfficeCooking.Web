@@ -11,6 +11,8 @@ from app.api.routes.auth import router as auth_router
 from app.api.routes.balances import router as balances_router
 from app.api.routes.catalog import router as catalog_router
 from app.api.routes.cooks import router as cooks_router
+from app.api.routes.preparation import router as preparation_router
+from app.api.routes.settlements import router as settlements_router
 from app.api.routes.zenmoney import router as zenmoney_router
 from app.auth_middleware import AuthenticationMiddleware
 from app.config import Settings, get_settings
@@ -85,6 +87,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(cooks_router)
     app.include_router(balances_router)
     app.include_router(zenmoney_router)
+    app.include_router(settlements_router)
+    app.include_router(preparation_router)
     return app
 
 

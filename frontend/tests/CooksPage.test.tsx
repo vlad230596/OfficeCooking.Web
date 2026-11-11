@@ -146,6 +146,32 @@ describe('CooksPage', () => {
     expect(screen.getByRole('button', { name: 'Копировать' })).toBeInTheDocument()
   })
 
+  it('shows offset overflow and separate refunds when nobody owes a positive charge', async () => {
+    api.calculateCookSelection.mockResolvedValueOnce({
+      cookIds: [cooks[0].id],
+      charges: [{ userId: 'buyer', userName: 'Покупатель', charge: -200 }],
+      total: -200,
+      positiveCharges: [],
+      positiveTotal: 0,
+      negativeCharges: [{ userId: 'buyer', userName: 'Покупатель', charge: -200 }],
+      separateOwed: [{ userId: 'other-buyer', userName: 'Другой покупатель', charge: 500 }],
+    })
+    renderPage()
+    await screen.findAllByText('Шаурма')
+    fireEvent.click(screen.getByLabelText('Выбрать готовку 19.08.2026'))
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+
+    const refunds = await screen.findByLabelText('Организатор возвращает')
+    expect(screen.getByText('Положительных начислений нет.')).toBeInTheDocument()
+    expect(within(refunds).getByText('Покупатель')).toBeInTheDocument()
+    expect(within(refunds).getByText('200')).toBeInTheDocument()
+    expect(within(refunds).getByText('Остаток после зачёта покупки')).toBeInTheDocument()
+    expect(within(refunds).getByText('Другой покупатель')).toBeInTheDocument()
+    expect(within(refunds).getByText('500')).toBeInTheDocument()
+    expect(within(refunds).getByText('Отдельным переводом')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Копировать' })).not.toBeInTheDocument()
+  })
+
   it('renders loading, error and empty states', async () => {
     let resolveRequest!: (value: ReturnType<typeof page>) => void
     api.listCooks.mockReturnValueOnce(new Promise(resolve => { resolveRequest = resolve }))

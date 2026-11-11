@@ -203,8 +203,7 @@ class CooksService:
         products: list[CookProductPrice] = []
         requested_products = sorted(request.product_prices, key=lambda item: item.position)
         product_inputs = [
-            ProductInput(product.product_name, product.expression)
-            for product in requested_products
+            ProductInput(product.product_name, product.expression) for product in requested_products
         ]
         member_inputs = self._create_member_inputs(members, users, variants)
         calculation = calculate_cook(
@@ -255,6 +254,9 @@ class CooksService:
             self.session.add_all([cook, *variants, *member_rows, *products])
             await self.session.flush()
             self.session.add_all(vote_rows)
+            from app.services.preparation import initialize_preparation
+
+            await initialize_preparation(self.session, cook.id, template.id)
             await self.session.commit()
         except IntegrityError as exc:
             await self.session.rollback()
@@ -267,7 +269,12 @@ class CooksService:
         return await self.get_cook(cook_id)
 
     async def update_cook(self, cook_id: UUID, request: UpdateCookRequest) -> CookDetailResponse:
-        cook = await self.session.scalar(select(Cook).where(Cook.id == cook_id).with_for_update())
+        cook = await self.session.scalar(
+            select(Cook)
+            .where(Cook.id == cook_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         if cook is None:
             raise CookNotFoundError("Cook was not found.")
         if cook.row_version != request.expected_version:
@@ -294,9 +301,7 @@ class CooksService:
             raise InvalidSnapshotError("voteVariants must be the existing historical snapshot.")
         existing_members = list(
             (
-                await self.session.scalars(
-                    select(CookMember).where(CookMember.cook_id == cook_id)
-                )
+                await self.session.scalars(select(CookMember).where(CookMember.cook_id == cook_id))
             ).all()
         )
         existing_members_by_id = {member.id: member for member in existing_members}
@@ -421,6 +426,11 @@ class CooksService:
         cook.row_version += 1
         try:
             self.session.add_all([*member_rows, *vote_rows, *products])
+            from app.services.preparation import prune_preparation_members
+
+            await prune_preparation_members(
+                self.session, cook_id, {member.user_id for member in request.members}
+            )
             await self.session.commit()
         except IntegrityError as exc:
             await self.session.rollback()
@@ -437,6 +447,9 @@ class CooksService:
     ) -> CalculateSelectionResponse:
         charges: dict[UUID, int] = {}
         names: dict[UUID, str] = {}
+        separate_owed: dict[UUID, int] = {}
+        from app.services.settlements import get_settlements
+
         for cook_id in request.cook_ids:
             cook = await self.session.get(Cook, cook_id)
             if cook is None:
@@ -455,6 +468,16 @@ class CooksService:
                     raise InvalidSnapshotError("A selected cook has no member charge.")
                 charges[member.user_id] = charges.get(member.user_id, 0) + charge
                 names[member.user_id] = loaded.users[member.user_id].name
+            settlements = await get_settlements(self.session, cook_id)
+            for purchase in settlements.purchases:
+                names[purchase.user_id] = purchase.user_name
+                remaining = purchase.amount - sum(r.amount for r in purchase.repayments)
+                if purchase.mode == "offset":
+                    charges[purchase.user_id] = charges.get(purchase.user_id, 0) - remaining
+                else:
+                    separate_owed[purchase.user_id] = (
+                        separate_owed.get(purchase.user_id, 0) + remaining
+                    )
         full = [
             UserChargeResponse(user_id=user_id, user_name=names[user_id], charge=charge)
             for user_id, charge in charges.items()
@@ -466,6 +489,12 @@ class CooksService:
             total=sum(item.charge for item in full),
             positive_charges=positive,
             positive_total=sum(item.charge for item in positive),
+            negative_charges=[item for item in full if item.charge < 0],
+            separate_owed=[
+                UserChargeResponse(user_id=user_id, user_name=names[user_id], charge=amount)
+                for user_id, amount in separate_owed.items()
+                if amount > 0
+            ],
         )
 
     async def preview_cook(self, request: DraftCookPreviewRequest) -> DraftCookPreviewResponse:

@@ -7,7 +7,7 @@ from app.database import create_engine
 
 def test_component_password_with_url_characters_is_not_parsed_as_url_syntax() -> None:
     password = "p@ss:/?#%[] value"
-    settings = Settings(database_password=SecretStr(password))
+    settings = Settings(database_url=None, database_password=SecretStr(password))
 
     url = settings.build_database_url()
     engine = create_engine(settings)

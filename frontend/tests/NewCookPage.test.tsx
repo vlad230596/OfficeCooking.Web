@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../src/api'
@@ -9,6 +9,8 @@ import { AuthProvider } from '../src/auth'
 import { NewCookPage } from '../src/pages/NewCookPage'
 
 vi.mock('../src/api/officeCookApi')
+vi.mock('../src/components/PreparationEditor', () => ({ CookPreparationEditor: () => null }))
+vi.mock('../src/components/SettlementEditor', () => ({ SettlementEditor: () => null }))
 
 const users: User[] = [
   { id: 'user-1', legacyId: 1, name: 'Алиса', permanentSale: 1, enabled: true, contacts: [] },
@@ -45,8 +47,7 @@ const cook: CookDetail = {
   }],
 }
 
-function renderPage(path: string) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+function renderPage(path: string, client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })) {
   return render(
     <QueryClientProvider client={client}>
       <AuthProvider>
@@ -63,6 +64,8 @@ function renderPage(path: string) {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks()
+  window.localStorage.clear()
   vi.mocked(api.getCurrentUser).mockResolvedValue({ id: 'admin-1', name: 'Администратор', username: 'admin', role: 'admin' })
   vi.mocked(api.listUsers).mockResolvedValue(users)
   vi.mocked(api.listTemplates).mockResolvedValue([{ id: template.id, name: template.name, isMultivote: false }])
@@ -94,6 +97,99 @@ beforeEach(() => {
 })
 
 describe('NewCookPage', () => {
+  it('advances an untouched editor after another section saves but protects unsaved edits', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    renderPage('/cooks/cook-1', client)
+    await screen.findByDisplayValue('2*100')
+    act(() => { client.setQueryData(['cook', cook.id], { ...cook, rowVersion: 8 }) })
+    await waitFor(() => expect(screen.queryByText(/изменилась после создания черновика/)).not.toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('Дата готовки'), { target: { value: '2026-08-22' } })
+    const submit = screen.getByRole('button', { name: 'Сохранить готовку' })
+    await waitFor(() => expect(submit).toBeEnabled())
+    act(() => { client.setQueryData(['cook', cook.id], { ...cook, rowVersion: 9 }) })
+    expect(await screen.findByText(/изменилась после создания черновика/)).toBeInTheDocument()
+    expect(submit).toBeDisabled()
+  })
+
+  it('restores every cooking field after remount and clears the draft after save', async () => {
+    const first = renderPage('/cooks/new')
+    const expression = (await screen.findAllByRole('textbox', { name: 'Выражение' }))[0]
+    fireEvent.change(expression, { target: { value: '2*100' } })
+    fireEvent.change(screen.getByLabelText('Дата готовки'), { target: { value: '2026-08-22' } })
+    fireEvent.click(within(screen.getByRole('group', { name: 'Алиса' })).getByRole('checkbox', { name: 'Много' }))
+    first.unmount()
+
+    renderPage('/cooks/new')
+    expect(await screen.findByDisplayValue('2*100')).toBeInTheDocument()
+    expect(screen.getByLabelText('Дата готовки')).toHaveValue('2026-08-22')
+    expect(within(screen.getByRole('group', { name: 'Алиса' })).getByRole('checkbox', { name: 'Много' })).toBeChecked()
+    expect(screen.getByText(/Черновик восстановлен/)).toBeInTheDocument()
+    const submit = screen.getByRole('button', { name: 'Сохранить готовку' })
+    await waitFor(() => expect(submit).toBeEnabled())
+    fireEvent.click(submit)
+    await screen.findByText('Список готовок')
+    expect(window.localStorage.length).toBe(0)
+  })
+
+  it('retains failed edits and blocks stale restored drafts instead of overwriting a newer version', async () => {
+    vi.mocked(api.updateCook).mockRejectedValue(new Error('offline'))
+    const first = renderPage('/cooks/cook-1')
+    const expression = (await screen.findAllByRole('textbox', { name: 'Выражение' }))[0]
+    fireEvent.change(expression, { target: { value: '100+80' } })
+    const submit = screen.getByRole('button', { name: 'Сохранить готовку' })
+    await waitFor(() => expect(submit).toBeEnabled())
+    fireEvent.click(submit)
+    await screen.findByText('offline')
+    first.unmount()
+
+    vi.mocked(api.getCook).mockResolvedValue({ ...cook, rowVersion: 8 })
+    renderPage('/cooks/cook-1')
+    expect(await screen.findByDisplayValue('100+80')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('изменилась после создания черновика')
+    expect(screen.getByRole('button', { name: 'Сохранить готовку' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Сбросить черновик' }))
+    expect(await screen.findByDisplayValue('2*100')).toBeInTheDocument()
+    expect(screen.queryByText(/изменилась после создания черновика/)).not.toBeInTheDocument()
+  })
+
+  it('keeps drafts separate between accounts', async () => {
+    const first = renderPage('/cooks/new')
+    fireEvent.change((await screen.findAllByRole('textbox', { name: 'Выражение' }))[0], { target: { value: 'private draft' } })
+    first.unmount()
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: 'admin-2', name: 'Другой', username: 'other', role: 'admin' })
+    renderPage('/cooks/new')
+    await screen.findByDisplayValue('Купаты')
+    expect(screen.queryByDisplayValue('private draft')).not.toBeInTheDocument()
+  })
+
+  it('keeps selected disabled participants after hiding the unused disabled users', async () => {
+    vi.mocked(api.listUsers).mockResolvedValue([users[0], { ...users[1], enabled: false }])
+    const first = renderPage('/cooks/new')
+    await screen.findByDisplayValue('Старый соус')
+    const showDisabled = await screen.findByRole('checkbox', { name: 'Показывать отключённых пользователей' })
+    expect(screen.queryByRole('group', { name: 'Борис' })).not.toBeInTheDocument()
+    fireEvent.click(showDisabled)
+    fireEvent.click(within(await screen.findByRole('group', { name: 'Борис' })).getByRole('checkbox', { name: 'Много' }))
+    fireEvent.click(showDisabled)
+    first.unmount()
+
+    renderPage('/cooks/new')
+    expect(within(await screen.findByRole('group', { name: 'Борис' })).getByRole('checkbox', { name: 'Много' })).toBeChecked()
+  })
+
+  it('preserves a new cook draft but blocks saving against changed template vote positions', async () => {
+    const first = renderPage('/cooks/new')
+    fireEvent.change((await screen.findAllByRole('textbox', { name: 'Выражение' }))[0], { target: { value: '2*100' } })
+    fireEvent.click(within(screen.getByRole('group', { name: 'Алиса' })).getByRole('checkbox', { name: 'Много' }))
+    first.unmount()
+
+    vi.mocked(api.getTemplate).mockResolvedValue({ ...template, voteVariants: template.voteVariants.map(item => ({ ...item, position: 1 - item.position })) })
+    renderPage('/cooks/new')
+    expect(await screen.findByDisplayValue('2*100')).toBeInTheDocument()
+    expect(screen.getByText(/Варианты порций блюда изменились/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Сохранить готовку' })).toBeDisabled()
+  })
+
   it('uses dish ingredients as an editable starting point and permits multiple votes', async () => {
     renderPage('/cooks/new')
     expect(await screen.findByDisplayValue('Старый соус')).toBeInTheDocument()

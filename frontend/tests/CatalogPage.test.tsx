@@ -1,8 +1,13 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from '../src/api'
 import { CatalogPage } from '../src/pages/CatalogPage'
+
+vi.mock('../src/components/PreparationEditor', () => ({ TemplatePreparationEditor: () => null }))
+
+vi.mock('../src/auth', () => ({ useAuth: () => ({ user: { id: 'admin-1' } }) }))
+beforeEach(() => { vi.clearAllMocks(); window.localStorage.clear() })
 
 vi.mock('../src/api', async (loadOriginal) => ({
   ...await loadOriginal<typeof import('../src/api')>(),
@@ -16,6 +21,34 @@ function renderPage() {
 }
 
 describe('CatalogPage', () => {
+  it('retains user input across tab changes and reloads', async () => {
+    vi.mocked(api.listUsers).mockResolvedValue([])
+    vi.mocked(api.listTemplates).mockResolvedValue([])
+    const first = renderPage()
+    fireEvent.change(await screen.findByLabelText('Имя'), { target: { value: 'Черновик пользователя' } })
+    fireEvent.click(screen.getByRole('tab', { name: 'Блюда' }))
+    await screen.findByLabelText('Название')
+    fireEvent.click(screen.getByRole('tab', { name: 'Пользователи' }))
+    expect(await screen.findByDisplayValue('Черновик пользователя')).toBeInTheDocument()
+    first.unmount()
+    renderPage()
+    expect(await screen.findByDisplayValue('Черновик пользователя')).toBeInTheDocument()
+  })
+
+  it('keeps separate dish drafts when switching dishes', async () => {
+    vi.mocked(api.listUsers).mockResolvedValue([])
+    vi.mocked(api.listTemplates).mockResolvedValue([{ id: 'd1', name: 'Салат', isMultivote: false }, { id: 'd2', name: 'Бургер', isMultivote: false }])
+    vi.mocked(api.getTemplate).mockImplementation(async id => ({ id, name: id === 'd1' ? 'Салат' : 'Бургер', isMultivote: false, voteVariants: [], ingredients: [] }))
+    renderPage()
+    fireEvent.click(screen.getByRole('tab', { name: 'Блюда' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Салат/ }))
+    fireEvent.change(await screen.findByDisplayValue('Салат'), { target: { value: 'Салат без лука' } })
+    fireEvent.click(screen.getByRole('button', { name: /Бургер/ }))
+    await screen.findByDisplayValue('Бургер')
+    fireEvent.click(screen.getByRole('button', { name: /Салат/ }))
+    expect(await screen.findByDisplayValue('Салат без лука')).toBeInTheDocument()
+  })
+
   it('adds a user with ordered contacts', async () => {
     vi.mocked(api.listUsers).mockResolvedValue([])
     vi.mocked(api.listTemplates).mockResolvedValue([])

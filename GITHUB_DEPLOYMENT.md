@@ -121,17 +121,27 @@ Push тега запускает `Release and deploy`. До обращения �
 ### 6. Обновить VDS — автоматически
 
 После approval GitHub по закреплённому SSH host key подключается пользователем `officecooking-deploy` и передаёт
-версии образов по digest. Root-owned deploy script автоматически:
+версии образов по digest, а через stdin — `compose.prod.yaml` из релизного тега. Root-owned deploy script
+автоматически:
 
 1. берёт эксклюзивную блокировку, чтобы исключить параллельный deployment;
 2. проверяет SemVer, допустимые GHCR image names и digest format;
-3. авторизуется в GHCR временным `GITHUB_TOKEN` и скачивает образы;
-4. сверяет OCI version/build labels с релизной версией;
-5. создаёт PostgreSQL backup `/var/backups/officecooking/before-release-<version>-<UTC>.dump`;
-6. сохраняет активные digest и build metadata в `/opt/officecooking/.release.env`;
-7. запускает `alembic upgrade head` новым backend image;
-8. обновляет Compose services без сборки исходников на VDS;
-9. ждёт health checks и проверяет публичные `/ready` и `/version`.
+3. проверяет полученный `compose.prod.yaml` и печатает diff с серверной копией;
+4. отказывается продолжать, если внешней сети из Compose нет на хосте или если сеть `*-ingress` на хосте либо
+   сеть работающего Caddy не объявлена в Compose (общий Caddy потерял бы её при пересоздании, см.
+   «Общий Caddy и сети других проектов» в `DEPLOYMENT.md`);
+5. авторизуется в GHCR временным `GITHUB_TOKEN` и скачивает образы;
+6. сверяет OCI version/build labels с релизной версией;
+7. создаёт PostgreSQL backup `/var/backups/officecooking/before-release-<version>-<UTC>.dump`;
+8. сохраняет активные digest и build metadata в `/opt/officecooking/.release.env`, а `compose.prod.yaml` — на
+   место серверной копии (предыдущая остаётся в `compose.prod.yaml.previous`);
+9. запускает `alembic upgrade head` новым backend image;
+10. обновляет Compose services без сборки исходников на VDS;
+11. ждёт health checks, проверяет, что Caddy подключён ко всем сетям других проектов, и проверяет публичные
+    `/ready` и `/version`.
+
+Root-owned копия `/usr/local/sbin/officecooking-deploy` на VDS сама не обновляется: после изменения
+`scripts/deploy-production.sh` её нужно установить заново вручную под root.
 
 Job становится зелёным только после этих проверок. Автоматического отката базы нет: при неудачной миграции нельзя
 считать простой возврат старых контейнеров безопасным rollback.
@@ -172,5 +182,8 @@ https://office-cooking.duckdns.org:8443
 - не копировать `.env`, SSH private keys, GitHub tokens или database dumps в репозиторий;
 - не запускать production Compose вручную без `.release.env`, если задача не является осознанным аварийным
   восстановлением;
+- не подключать сеть другого проекта к общему Caddy только через `docker network connect` и не править
+  `compose.prod.yaml` на сервере: сеть объявляется в `compose.prod.yaml` репозитория, иначе следующий релиз
+  её снимет;
 - не считать успешный запуск контейнера достаточной проверкой — итогом служат зелёный deploy job, `/ready`,
   `/version` и ручная проверка пользовательского сценария.

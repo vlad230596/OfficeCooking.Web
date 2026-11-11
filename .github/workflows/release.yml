@@ -146,6 +146,13 @@ jobs:
       VPS_USER: ${{ secrets.VPS_USER }}
       VPS_PORT: ${{ vars.VPS_PORT || '22' }}
     steps:
+      # compose.prod.yaml travels with every release: it lists the ingress networks of the other tenants
+      # behind the shared Caddy, and the server must never run a hand-edited copy of it.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+          sparse-checkout: compose.prod.yaml
+          sparse-checkout-cone-mode: false
       - name: Configure production SSH key
         env:
           VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
@@ -159,7 +166,7 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          printf '%s\n' "$GHCR_TOKEN" | ssh \
+          { printf '%s\n' "$GHCR_TOKEN"; cat compose.prod.yaml; } | ssh \
             -i ~/.ssh/officecooking-production \
             -p "$VPS_PORT" \
             -o BatchMode=yes \

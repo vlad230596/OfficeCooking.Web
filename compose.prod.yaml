@@ -29,7 +29,9 @@ services:
       OFFICE_COOK_ALLOWED_HOSTS: "[\"${APP_DOMAIN}\",\"localhost\"]"
       OFFICE_COOK_CORS_ORIGINS: "[\"${APP_ORIGIN:?set APP_ORIGIN in .env}\"]"
       OFFICE_COOK_SESSION_COOKIE_SECURE: "true"
-      OFFICE_COOK_ZENMONEY_ENCRYPTION_KEY: ${OFFICE_COOK_ZENMONEY_ENCRYPTION_KEY:?set OFFICE_COOK_ZENMONEY_ENCRYPTION_KEY in .env}
+      # Empty is allowed: production then derives the key from POSTGRES_PASSWORD (see DEPLOYMENT.md),
+      # which is how tokens already stored on the VDS were encrypted.
+      OFFICE_COOK_ZENMONEY_ENCRYPTION_KEY: ${OFFICE_COOK_ZENMONEY_ENCRYPTION_KEY:-}
       OFFICE_COOK_ZENMONEY_SYNC_INTERVAL_MINUTES: ${OFFICE_COOK_ZENMONEY_SYNC_INTERVAL_MINUTES:-15}
     depends_on:
       postgres: { condition: service_healthy }
@@ -48,6 +50,9 @@ services:
     restart: unless-stopped
     depends_on:
       backend: { condition: service_healthy }
+    networks:
+      default:
+        aliases: [officecooking-frontend]
   caddy:
     image: caddy:2.10-alpine
     restart: unless-stopped
@@ -58,12 +63,36 @@ services:
       - "80:80"
       - "${APP_HTTPS_PORT:-443}:${APP_HTTPS_PORT:-443}"
       - "${APP_HTTPS_PORT:-443}:${APP_HTTPS_PORT:-443}/udp"
+      # Development stands of other tenants (CashFlow, zerno).
+      - "8444:8444"
+      - "8444:8444/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on: [frontend]
+    # This Caddy is the shared ingress of the VDS. Every tenant's <name>-ingress network MUST be
+    # listed here and under top-level `networks`: Compose recreates caddy on every release, and a
+    # network attached only by hand (`docker network connect`) is dropped, which turns that tenant
+    # into 502. scripts/deploy-production.sh refuses to deploy if an *-ingress network exists on the
+    # host but is missing here.
+    networks:
+      default: {}
+      cashflow-ingress: {}
+      zerno-ingress: {}
+      taskradar-ingress: {}
+      familyapp-ingress: {}
 volumes:
   postgres-data:
   caddy-data:
   caddy-config:
+networks:
+  # Created by each tenant's own deployment; OfficeCooking only joins them.
+  cashflow-ingress:
+    external: true
+  zerno-ingress:
+    external: true
+  taskradar-ingress:
+    external: true
+  familyapp-ingress:
+    external: true

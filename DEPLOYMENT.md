@@ -59,6 +59,7 @@ https://office-cooking.duckdns.org:8443
 | `80/tcp` | публичный | Caddy: HTTP-01 challenge и redirect на HTTPS `:8443` |
 | `8443/tcp` | публичный | Caddy: основной HTTPS frontend и API |
 | `8443/udp` | публичный | Caddy: HTTP/3; для основной работы не обязателен |
+| `8444/tcp`, `8444/udp` | публичный | Caddy: dev-стенды CashFlow и zerno, не OfficeCooking |
 | `80/tcp` frontend | только Docker network | nginx со статическим React frontend и proxy `/api/` |
 | `8000/tcp` backend | только Docker network | FastAPI/uvicorn |
 | `5432/tcp` PostgreSQL | только Docker network | база данных приложения |
@@ -92,6 +93,37 @@ Internet
 Backend является источником истины. Frontend, backend и PostgreSQL доступны друг другу только в
 Compose network. Снаружи запросы проходят через Caddy и nginx.
 
+## Общий Caddy и сети других проектов
+
+Caddy из этого Compose (`officecooking-caddy-1`) — общий ingress всего VDS. Кроме OfficeCooking он
+обслуживает CashFlow (prod и dev), zerno (prod и dev), TaskRadar и FamilyApp. Их site-блоки лежат в
+`/opt/officecooking/Caddyfile` на сервере; до своих контейнеров Caddy доходит через внешние Docker-сети
+`<проект>-ingress`, которые создаёт deployment соответствующего проекта:
+
+| Сеть | Проект | Upstream в Caddyfile |
+| --- | --- | --- |
+| `cashflow-ingress` | CashFlow prod и dev | `cashflow-backend`, `cashflow-frontend`, `cashflow-dev-*` |
+| `zerno-ingress` | zerno prod и dev | `zerno-web`, `zerno-dev-web` |
+| `taskradar-ingress` | TaskRadar | `taskradar-backend:3001`, `taskradar-web:8080` |
+| `familyapp-ingress` | FamilyApp | `familyapp-backend:8000`, `familyapp-web:8080` |
+
+Правила:
+
+- Каждая сеть другого проекта объявляется в `compose.prod.yaml` этого репозитория: в `services.caddy.networks`
+  и в верхнеуровневом `networks` с `external: true`. Только `docker network connect` недостаточно: каждый
+  релиз OfficeCooking пересоздаёт контейнер Caddy (он зависит от frontend), и сеть, подключённая вручную,
+  пропадает. Так 11.11.2026 релиз `1.3.0` отключил `taskradar-ingress`, и TaskRadar отвечал 502, пока сеть
+  не подключили заново.
+- `compose.prod.yaml` на сервере не правится руками: release workflow передаёт его из релизного тега, и
+  deploy script заменяет серверную копию (предыдущая остаётся в `compose.prod.yaml.previous`).
+- Новый проект за этим Caddy: сначала commit с его сетью в `compose.prod.yaml` и релиз OfficeCooking, затем
+  site-блок в серверном `Caddyfile`. До релиза можно временно выполнить `docker network connect`, но это
+  не заменяет запись в Compose.
+- Deploy script отказывается пересоздавать Caddy (код 78, до backup и миграций), если внешняя сеть из
+  Compose не существует или если на хосте есть сеть `*-ingress` либо к работающему Caddy подключена сеть,
+  которой нет в Compose. После `up` он проверяет, что Caddy подключён ко всем внешним сетям (код 71 и
+  команда для восстановления).
+
 ## Production-переменные
 
 Файл `/opt/officecooking/.env` содержит примерно такую конфигурацию:
@@ -120,6 +152,8 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 Для совместимости с уже развёрнутыми серверами backend в production может вывести ключ
 из `POSTGRES_PASSWORD`, если отдельный `OFFICE_COOK_ZENMONEY_ENCRYPTION_KEY` ещё не
 передаётся контейнеру. Отдельный Fernet-ключ остаётся предпочтительным вариантом.
+Текущий VDS работает именно так: в его `.env` ключа нет, поэтому `compose.prod.yaml` допускает пустое
+значение. Добавление ключа в `.env` сделает уже сохранённые токены ZenMoney нерасшифровываемыми.
 
 Правила:
 
